@@ -3,14 +3,18 @@ package main
 import (
 	"crypto/rand"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"os"
 	"sync"
+	"time"
 )
 
 var debug bool
+//var fallocate bool
 
-func writer(path string, outputSize int, flushSize int, wg *sync.WaitGroup) {
+func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *sync.WaitGroup) {
 	bufSize := 32 * 1024 * 1024
 	data := make([]byte, bufSize)
 	writeTotal := 0
@@ -18,73 +22,100 @@ func writer(path string, outputSize int, flushSize int, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	if debug {
-		log.Println("Generating random data buffer")
+		log.Printf("[Writer %d] Generating random data buffer\n", id)
 	}
 	_, err := rand.Read(data)
 	if err != nil {
-		log.Printf("Error: %s\n", err)
+		log.Printf("[Writer %d] Error: %s\n", id, err)
 		return
 	}
 	if debug {
-		log.Printf("Generated %d random bytes", len(data))
+		log.Printf("[Writer %d] Generated %d random bytes", id, len(data))
 	}
 
 	tmpfile, err := ioutil.TempFile(path, "output*.data")
 	if err != nil {
-		log.Printf("Error: %s\n", err)
+		log.Printf("[Writer %d] Error: %s\n", id, err)
 		return
 	}
-	//defer os.Remove(tmpfile.Name())
+	if keep {
+		defer os.Remove(tmpfile.Name())
+	}
 
+	log.Printf("[Writer %d] Starting writer\n", id)
+	startTime := time.Now()
 	for i := 0; i < outputSize/bufSize; i++ {
 		if flushSize > 0 && flushSize < bufSize {
 			for j := 0; j < bufSize/flushSize; j++ {
 				n, err := tmpfile.Write(data[j*flushSize:flushSize])
 				if err != nil {
-					tmpfile.Close()
-					log.Printf("Error: %s\n", err)
+					_ = tmpfile.Close()
+					log.Printf("[Writer %d] Error: %s\n", id, err)
 					return
 				}
 				writeTotal += n
+				_ = tmpfile.Sync()
 			}
 		} else {
 			n, err := tmpfile.Write(data)
 			if err != nil {
-				tmpfile.Close()
-				log.Printf("Error: %s\n", err)
+				_ = tmpfile.Close()
+				log.Printf("[Writer %d] Error: %s\n", id, err)
 				return
 			}
 			writeTotal += n
+			_ = tmpfile.Sync()
 		}
 	}
 	if writeTotal < outputSize {
 		n, err := tmpfile.Write(data[:outputSize-writeTotal])
 		if err != nil {
-			tmpfile.Close()
-			log.Printf("Error: %s\n", err)
+			_ = tmpfile.Close()
+			log.Printf("[Writer %d] Error: %s\n", id, err)
 			writeTotal += n
 			return
 		}
 	}
-	tmpfile.Close()
+	_ = tmpfile.Sync()
+	_ = tmpfile.Close()
 
-	log.Printf("Wrote %d total bytes\n", writeTotal)
+	log.Printf("[Writer %d] Wrote %d bytes to %s (%d MB/s, %0.2f sec.)\n", id, writeTotal, tmpfile.Name(), (writeTotal/1048576)/int(time.Now().Sub(startTime).Seconds()), time.Now().Sub(startTime).Seconds())
 }
 
 func main() {
+	var keep bool
 	var size int
 	var writers int
+	var flushSize int
 	var wg sync.WaitGroup
 
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
+	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
+	//flag.BoolVar(&fallocate, "fallocate", false, "Use fallocate to pre-allocate files")
+	flag.IntVar(&flushSize, "flush", 0, "Data each writer should write before calling Sync")
 	flag.IntVar(&writers, "writers", 1, "Number of writer routines")
 	flag.IntVar(&size, "size", 32*1024*1024, "File size for each writer")
 	flag.Parse()
 
-	log.Printf("Writers: %d\n", writers)
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n\t%s [-debug] [-flush N] [-size N] [writers N] PATH [PATH...]\n\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
+	}
+
+	if len(flag.Args()) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: You must specify at least one output path.\n")
+		flag.Usage()
+	}
+
+	writerID := 0
 	for i := 0; i < writers; i++ {
-		wg.Add(1)
-		go writer("/tmp", size, 0, &wg)
+		for _, pathValue := range flag.Args() {
+			wg.Add(1)
+			go writer(writerID, pathValue, size, flushSize, keep, &wg)
+			writerID++
+		}
 	}
 
 	wg.Wait()
