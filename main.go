@@ -1,7 +1,6 @@
 package main
 
 import (
-	"crypto/rand"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -12,11 +11,10 @@ import (
 )
 
 var debug bool
-//var fallocate bool
 
 func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *sync.WaitGroup) {
 	bufSize := 32 * 1024 * 1024
-	data := make([]byte, bufSize)
+	data := make([]byte, flushSize)
 	writeTotal := 0
 
 	defer wg.Done()
@@ -24,13 +22,9 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 	if debug {
 		log.Printf("[Writer %d] Generating random data buffer\n", id)
 	}
-	_, err := rand.Read(data)
-	if err != nil {
-		log.Printf("[Writer %d] Error: %s\n", id, err)
-		return
-	}
+	dr := NewDataReader(bufSize)
 	if debug {
-		log.Printf("[Writer %d] Generated %d random bytes", id, len(data))
+		log.Printf("[Writer %d] Generated %d random bytes", id, bufSize)
 	}
 
 	tmpfile, err := ioutil.TempFile(path, "output*.data")
@@ -44,36 +38,40 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 
 	log.Printf("[Writer %d] Starting writer\n", id)
 	startTime := time.Now()
-	for i := 0; i < outputSize/bufSize; i++ {
-		if flushSize > 0 && flushSize < bufSize {
-			for j := 0; j < bufSize/flushSize; j++ {
-				n, err := tmpfile.Write(data[j*flushSize:flushSize])
-				if err != nil {
-					_ = tmpfile.Close()
-					log.Printf("[Writer %d] Error: %s\n", id, err)
-					return
-				}
-				writeTotal += n
-				_ = tmpfile.Sync()
-			}
-		} else {
-			n, err := tmpfile.Write(data)
-			if err != nil {
-				_ = tmpfile.Close()
-				log.Printf("[Writer %d] Error: %s\n", id, err)
-				return
-			}
-			writeTotal += n
-			_ = tmpfile.Sync()
+	for i := 0; i < outputSize / flushSize; i++ {
+		r, err := dr.Read(data)
+		if err != nil || r < flushSize {
+			return
 		}
+
+		n, err := tmpfile.Write(data)
+		if err != nil {
+			_ = tmpfile.Close()
+			log.Printf("[Writer %d] Error: %s\n", id, err)
+			return
+		}
+		writeTotal += n
+		if debug {
+			log.Printf("[Writer %d] Wrote %d bytes - %d\n", id, n, writeTotal)
+		}
+
+		_ = tmpfile.Sync()
 	}
 	if writeTotal < outputSize {
+		r, err := dr.Read(data)
+		if err != nil || r < flushSize {
+			return
+		}
+
 		n, err := tmpfile.Write(data[:outputSize-writeTotal])
 		if err != nil {
 			_ = tmpfile.Close()
 			log.Printf("[Writer %d] Error: %s\n", id, err)
-			writeTotal += n
 			return
+		}
+		writeTotal += n
+		if debug {
+			log.Printf("[Writer %d] Wrote %d bytes - %d\n", id, n, writeTotal)
 		}
 	}
 	_ = tmpfile.Sync()
