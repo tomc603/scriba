@@ -10,9 +10,9 @@ type dataReader struct {
 }
 
 func NewDataReader(size int) *dataReader {
-	// Create 32MB default size if the specified size isn't sensible.
-	if size < 32768 {
-		size = 33554432
+	// Create 64K minimum size buffer
+	if size < 65536 {
+		size = 65536
 	}
 
 	data := make([]byte, size)
@@ -30,17 +30,18 @@ func (r *dataReader) Read(p []byte) (int, error) {
 	// Read r.data from lastPos to either len(p) or len(r.data),
 	// then cycle back around to r.data[0]
 
-	// This is probably the most GC friendly way to handle this operation.
+	// This is probably not the most GC friendly way to handle this operation.
 	buf := make([]byte, len(p))
 
-	// TODO: Optimize this action by reading ranges of bytes rather than copying one-by-one
-	for i := range buf {
-		buf[i] = r.data[r.position]
+	copied := 0
+	for copied < len(buf) {
+		copied += copy(buf[copied:], r.data[r.position:])
+		r.position += copied
 		if r.position + 1 > len(r.data) {
 			r.position = 0
 		}
 	}
 	copy(p, buf)
 
-	return len(buf), nil
+	return copied, nil
 }

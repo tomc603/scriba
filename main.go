@@ -32,11 +32,13 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 		log.Printf("[Writer %d] Error: %s\n", id, err)
 		return
 	}
-	if keep {
+	if ! keep {
 		defer os.Remove(tmpfile.Name())
 	}
 
-	log.Printf("[Writer %d] Starting writer\n", id)
+	if debug {
+		log.Printf("[Writer %d] Starting writer\n", id)
+	}
 	startTime := time.Now()
 	for i := 0; i < outputSize / flushSize; i++ {
 		r, err := dr.Read(data)
@@ -50,11 +52,8 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 			log.Printf("[Writer %d] Error: %s\n", id, err)
 			return
 		}
-		writeTotal += n
-		if debug {
-			log.Printf("[Writer %d] Wrote %d bytes - %d\n", id, n, writeTotal)
-		}
 
+		writeTotal += n
 		_ = tmpfile.Sync()
 	}
 	if writeTotal < outputSize {
@@ -70,9 +69,6 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 			return
 		}
 		writeTotal += n
-		if debug {
-			log.Printf("[Writer %d] Wrote %d bytes - %d\n", id, n, writeTotal)
-		}
 	}
 	_ = tmpfile.Sync()
 	_ = tmpfile.Close()
@@ -90,7 +86,7 @@ func main() {
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	//flag.BoolVar(&fallocate, "fallocate", false, "Use fallocate to pre-allocate files")
-	flag.IntVar(&flushSize, "flush", 0, "Data each writer should write before calling Sync")
+	flag.IntVar(&flushSize, "flush", 65536, "Data each writer should write before calling Sync")
 	flag.IntVar(&writers, "writers", 1, "Number of writer routines")
 	flag.IntVar(&size, "size", 32*1024*1024, "File size for each writer")
 	flag.Parse()
@@ -105,9 +101,11 @@ func main() {
 	if len(flag.Args()) == 0 {
 		fmt.Fprintf(os.Stderr, "Error: You must specify at least one output path.\n")
 		flag.Usage()
+		os.Exit(1)
 	}
 
 	writerID := 0
+	log.Printf("Starting %d writers\n", writers)
 	for i := 0; i < writers; i++ {
 		for _, pathValue := range flag.Args() {
 			wg.Add(1)
