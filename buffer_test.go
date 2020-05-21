@@ -73,5 +73,8 @@ func BenchmarkDataReader_Read(b *testing.B) {
 		totalCopied += copied
 	}
 	b.Logf(
-		"Copied %d, %s/sec %0.2f MB/sec", totalCopied, sizeHumanizer(totalCopied/int(time.Now().Sub(startTime).Seconds()), true))
+		"Copied %d, %s/sec",
+		totalCopied,
+		sizeHumanizer(totalCopied/int(time.Now().Sub(startTime).Seconds()), true),
+	)
 }
