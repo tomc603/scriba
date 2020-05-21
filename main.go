@@ -103,6 +103,8 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
+	
+	// TODO: Sanity check the flushSize value
 
 	writerID := 0
 	log.Printf("Starting %d writers\n", writers)
