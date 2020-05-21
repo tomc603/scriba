@@ -37,7 +37,7 @@ func (r *dataReader) Read(p []byte) (int, error) {
 	for copied < len(buf) {
 		copied += copy(buf[copied:], r.data[r.position:])
 		r.position += copied
-		if r.position + 1 > len(r.data) {
+		if r.position+1 > len(r.data) {
 			r.position = 0
 		}
 	}

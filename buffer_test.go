@@ -7,7 +7,7 @@ import (
 
 func TestDataReader_Read(t *testing.T) {
 	smallData := make([]byte, 65536)
-	largeData := make([]byte, 128 * 1024 * 1024)
+	largeData := make([]byte, 128*1024*1024)
 	smallReader := NewDataReader(65535)
 	equalReader := NewDataReader(65536)
 	largeReader := NewDataReader(65537)
@@ -57,7 +57,7 @@ func TestNewDataReader(t *testing.T) {
 	}
 
 	t.Log("Verifying read buffer size matches the request")
-	if testReader := NewDataReader( 1024 * 1024); len(testReader.data) < 1024 * 1024 {
+	if testReader := NewDataReader(1024 * 1024); len(testReader.data) < 1024*1024 {
 		t.Errorf("Reader internal buffer is not the size requested. %d bytes\n", len(testReader.data))
 	}
 }
@@ -72,5 +72,6 @@ func BenchmarkDataReader_Read(b *testing.B) {
 		copied, _ := r.Read(data)
 		totalCopied += copied
 	}
-	b.Logf("Copied %d, %0.2f MB/sec", totalCopied, float64(totalCopied / 1024 / 1024) / time.Now().Sub(startTime).Seconds())
+	b.Logf(
+		"Copied %d, %s/sec %0.2f MB/sec", totalCopied, sizeHumanizer(totalCopied/int(time.Now().Sub(startTime).Seconds()), true))
 }
