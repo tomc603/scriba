@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -31,7 +31,7 @@ type sysfsDiskStats struct {
 }
 
 type diskStats struct {
-	stats []sysfsDiskStats
+	stats  []sysfsDiskStats
 	device string
 }
 
@@ -41,21 +41,21 @@ func (s *diskStats) String() string {
 	for _, stat := range s.stats {
 		output += fmt.Sprintf("\n%s\n", s.device)
 
-		output += fmt.Sprintf("    %-15s:%15s\n","Timestamp", stat.t)
+		output += fmt.Sprintf("    %-15s:%15s\n", "Timestamp", stat.t)
 
-		output += fmt.Sprintf("    %-15s:%15d\n","Read IO", stat.readIO)
-		output += fmt.Sprintf("    %-15s:%15d\n","Read Merges", stat.readMerges)
-		output += fmt.Sprintf("    %-15s:%15d\n","Read Sectors", stat.readSectors)
-		output += fmt.Sprintf("    %-15s:%15d\n","Read Time", stat.readTime)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Read IO", stat.readIO)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Read Merges", stat.readMerges)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Read Sectors", stat.readSectors)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Read Time", stat.readTime)
 
-		output += fmt.Sprintf("    %-15s:%15d\n","Write IO", stat.writeIO)
-		output += fmt.Sprintf("    %-15s:%15d\n","Write Merges", stat.writeMerges)
-		output += fmt.Sprintf("    %-15s:%15d\n","Write Sectors", stat.writeSectors)
-		output += fmt.Sprintf("    %-15s:%15d\n","Write Time", stat.writeTime)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Write IO", stat.writeIO)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Write Merges", stat.writeMerges)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Write Sectors", stat.writeSectors)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Write Time", stat.writeTime)
 
-		output += fmt.Sprintf("    %-15s:%15d\n","In Flight", stat.inFlight)
-		output += fmt.Sprintf("    %-15s:%15d\n","IO Time", stat.ioTime)
-		output += fmt.Sprintf("    %-15s:%15d\n","Time in Queue", stat.timeInQueue)
+		output += fmt.Sprintf("    %-15s:%15d\n", "In Flight", stat.inFlight)
+		output += fmt.Sprintf("    %-15s:%15d\n", "IO Time", stat.ioTime)
+		output += fmt.Sprintf("    %-15s:%15d\n", "Time in Queue", stat.timeInQueue)
 	}
 	return fmt.Sprint(output)
 }
