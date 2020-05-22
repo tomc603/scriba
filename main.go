@@ -10,7 +10,9 @@ import (
 	"time"
 )
 
-var debug bool
+var (
+	debug bool
+)
 
 func sizeHumanizer(i int, base2 bool) string {
 	const (
@@ -54,9 +56,10 @@ func sizeHumanizer(i int, base2 bool) string {
 	return fmt.Sprintf("%d bytes", i)
 }
 
-func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *sync.WaitGroup) {
+func writer(id int, path string, outputSize int, flushSize int, keep bool, recordStats bool, wg *sync.WaitGroup) {
 	readerBufSize := 32 * 1024 * 1024
 	data := make([]byte, flushSize)
+	stats := NewStatsCollector(path)
 	writeTotal := 0
 
 	defer wg.Done()
@@ -82,6 +85,13 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 		log.Printf("[Writer %d] Starting writer\n", id)
 	}
 	startTime := time.Now()
+	lastStatTime := time.Now()
+	if recordStats && stats != nil {
+		if err := stats.UpdateStats(); err != nil {
+			log.Printf("[Writer %d] Error gathering stats. %s\n", id, err)
+		}
+		lastStatTime = time.Now()
+	}
 	for i := 0; i < outputSize/flushSize; i++ {
 		r, err := dr.Read(data)
 		if err != nil || r < flushSize {
@@ -97,6 +107,13 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 
 		writeTotal += n
 		_ = tmpfile.Sync()
+
+		if time.Now().Sub(lastStatTime).Seconds() > 1.0 && stats != nil {
+			if err := stats.UpdateStats(); err != nil {
+				log.Printf("[Writer %d] Error gathering stats. %s\n", id, err)
+			}
+			lastStatTime = time.Now()
+		}
 	}
 	if writeTotal < outputSize {
 		r, err := dr.Read(data)
@@ -114,19 +131,26 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, wg *s
 	}
 	_ = tmpfile.Sync()
 	_ = tmpfile.Close()
+	if recordStats && stats != nil {
+		stats.UpdateStats()
+	}
 
 	log.Printf(
 		"[Writer %d] Wrote %s to %s (%s/s, %0.2f sec.)\n",
 		id,
 		sizeHumanizer(writeTotal, true),
 		tmpfile.Name(),
-		sizeHumanizer(writeTotal/int(time.Now().Sub(startTime).Seconds()), true),
+		sizeHumanizer(int(float64(writeTotal)/time.Now().Sub(startTime).Seconds()), true),
 		time.Now().Sub(startTime).Seconds(),
 	)
+	if recordStats {
+		fmt.Printf("\n** STATS **\n%s\n", stats)
+	}
 }
 
 func main() {
 	var keep bool
+	var recordStats bool
 	var size int
 	var writers int
 	var flushSize int
@@ -134,6 +158,7 @@ func main() {
 
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
+	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
 	//flag.BoolVar(&fallocate, "fallocate", false, "Use fallocate to pre-allocate files")
 	flag.IntVar(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
 	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
@@ -160,7 +185,7 @@ func main() {
 	for i := 0; i < writers; i++ {
 		for _, pathValue := range flag.Args() {
 			wg.Add(1)
-			go writer(writerID, pathValue, size, flushSize, keep, &wg)
+			go writer(writerID, pathValue, size, flushSize, keep, recordStats, &wg)
 			writerID++
 		}
 	}
