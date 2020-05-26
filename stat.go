@@ -31,31 +31,131 @@ type sysfsDiskStats struct {
 }
 
 type diskStats struct {
-	stats  []sysfsDiskStats
+	stats  []*sysfsDiskStats
 	device string
+}
+
+// TODO: Add stats for CPU and IRQ
+type statsCollection struct {
+	diskstats []*diskStats
+	semaphore chan bool
+	t         *time.Ticker
+}
+
+func (s *sysfsDiskStats) csv() string {
+	var output string
+
+	output += fmt.Sprintf("%d,", s.t.Unix())
+
+	output += fmt.Sprintf("%d,", s.readIO)
+	output += fmt.Sprintf("%d,", s.readMerges)
+	output += fmt.Sprintf("%d,", s.readSectors)
+	output += fmt.Sprintf("%d,", s.readTime)
+
+	output += fmt.Sprintf("%d,", s.writeIO)
+	output += fmt.Sprintf("%d,", s.writeMerges)
+	output += fmt.Sprintf("%d,", s.writeSectors)
+	output += fmt.Sprintf("%d,", s.writeTime)
+
+	output += fmt.Sprintf("%d,", s.inFlight)
+	output += fmt.Sprintf("%d,", s.ioTime)
+	output += fmt.Sprintf("%d", s.timeInQueue)
+
+	return fmt.Sprint(output)
+}
+
+func (s *sysfsDiskStats) String() string {
+	var output string
+
+	output += fmt.Sprintf("    %-15s:%15s\n", "Timestamp", s.t)
+
+	output += fmt.Sprintf("    %-15s:%15d\n", "Read IO", s.readIO)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Read Merges", s.readMerges)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Read Sectors", s.readSectors)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Read Time", s.readTime)
+
+	output += fmt.Sprintf("    %-15s:%15d\n", "Write IO", s.writeIO)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Write Merges", s.writeMerges)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Write Sectors", s.writeSectors)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Write Time", s.writeTime)
+
+	output += fmt.Sprintf("    %-15s:%15d\n", "In Flight", s.inFlight)
+	output += fmt.Sprintf("    %-15s:%15d\n", "IO Time", s.ioTime)
+	output += fmt.Sprintf("    %-15s:%15d\n", "Time in Queue", s.timeInQueue)
+
+	return fmt.Sprint(output)
+}
+
+func (s *statsCollection) Add(device string) {
+	d := diskStats{device: device}
+
+	for _, item := range s.diskstats {
+		if item.device == device {
+			if debug {
+				log.Printf("Device %s already being polled for stats\n", device)
+			}
+			return
+		}
+	}
+
+	s.diskstats = append(s.diskstats, &d)
+}
+
+func (s *statsCollection) CollectStats() {
+	s.t = time.NewTicker(1 * time.Second)
+	for {
+		select {
+		case <-s.semaphore:
+			s.t.Stop()
+			return
+		case <-s.t.C:
+			for _, item := range s.diskstats {
+				if debug {
+					log.Printf("Updating stats for %s\n", item.device)
+				}
+
+				if err := item.UpdateStats(); err != nil {
+					log.Printf("Error updating stats for %s. %s\n", item.device, err)
+				}
+			}
+		}
+	}
+}
+
+func (s *statsCollection) csv() string {
+	var output string
+
+	output += "\"device\",\"timestamp\",\"read IO\",\"read merges\",\"read sectors\",\"read time\",\"write IO\",\"write merges\",\"write sectors\",\"write time\",\"inflight\",\"IO time\",\"time in queue\"\n"
+	for _, item := range s.diskstats {
+		output += fmt.Sprintf("%s\n", item.csv())
+	}
+	return output
+}
+
+func (s *statsCollection) String() string {
+	var output string
+
+	for _, item := range s.diskstats {
+		output += item.csv()
+	}
+	return output
+}
+
+func (s *diskStats) csv() string {
+	var output string
+
+	for _, item := range s.stats {
+		output += fmt.Sprintf("\"%s\",%s\n", s.device, item.csv())
+	}
+	return fmt.Sprint(output)
 }
 
 func (s *diskStats) String() string {
 	var output string
 
-	for _, stat := range s.stats {
-		output += fmt.Sprintf("\n%s\n", s.device)
-
-		output += fmt.Sprintf("    %-15s:%15s\n", "Timestamp", stat.t)
-
-		output += fmt.Sprintf("    %-15s:%15d\n", "Read IO", stat.readIO)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Read Merges", stat.readMerges)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Read Sectors", stat.readSectors)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Read Time", stat.readTime)
-
-		output += fmt.Sprintf("    %-15s:%15d\n", "Write IO", stat.writeIO)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Write Merges", stat.writeMerges)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Write Sectors", stat.writeSectors)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Write Time", stat.writeTime)
-
-		output += fmt.Sprintf("    %-15s:%15d\n", "In Flight", stat.inFlight)
-		output += fmt.Sprintf("    %-15s:%15d\n", "IO Time", stat.ioTime)
-		output += fmt.Sprintf("    %-15s:%15d\n", "Time in Queue", stat.timeInQueue)
+	output += fmt.Sprintf("\n%s\n", s.device)
+	for _, item := range s.stats {
+		output += fmt.Sprintf("%s\n", item.String())
 	}
 	return fmt.Sprint(output)
 }
@@ -122,18 +222,9 @@ func (s *diskStats) UpdateStats() error {
 		}
 	}
 	stat.t = time.Now()
-	s.stats = append(s.stats, stat)
+	s.stats = append(s.stats, &stat)
 
 	return nil
-}
-
-func NewStatsCollector(path string) *diskStats {
-	devicePath := DevFromPath(path)
-	if devicePath == "" {
-		return nil
-	}
-
-	return &diskStats{device: devicePath}
 }
 
 // DevFromPath - Find the longest mountpoint prefixing path and return its matching device

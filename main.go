@@ -10,11 +10,23 @@ import (
 	"time"
 )
 
+type throughput struct {
+	writer int
+	bytes  int
+	time   time.Duration
+}
+
+type writerResults struct {
+	sync.Mutex
+	d map[string][]*throughput
+}
+
 var (
-	debug bool
+	debug   bool
+	verbose bool
 )
 
-func sizeHumanizer(i int, base2 bool) string {
+func sizeHumanizer(f float64, base2 bool) string {
 	const (
 		base2kilo = 1 << 10
 		base2mega = 1 << 20
@@ -27,39 +39,37 @@ func sizeHumanizer(i int, base2 bool) string {
 		base10tera = 1e12
 	)
 
-	size := float64(i)
 	if base2 {
 		switch {
-		case size > base2tera:
-			return fmt.Sprintf("%0.2f TB", size/base2tera)
-		case size > base2giga:
-			return fmt.Sprintf("%0.2f GB", size/base2giga)
-		case size > base2mega:
-			return fmt.Sprintf("%0.2f MB", size/base2mega)
-		case size > base2kilo:
-			return fmt.Sprintf("%0.2f KB", size/base2kilo)
+		case f > base2tera:
+			return fmt.Sprintf("%0.2f TB", f/base2tera)
+		case f > base2giga:
+			return fmt.Sprintf("%0.2f GB", f/base2giga)
+		case f > base2mega:
+			return fmt.Sprintf("%0.2f MB", f/base2mega)
+		case f > base2kilo:
+			return fmt.Sprintf("%0.2f KB", f/base2kilo)
 		}
 	} else {
 		switch {
-		case size > base10tera:
-			return fmt.Sprintf("%0.2f TB", size/base10tera)
-		case size > base10giga:
-			return fmt.Sprintf("%0.2f GB", size/base10giga)
-		case size > base10mega:
-			return fmt.Sprintf("%0.2f MB", size/base10mega)
-		case size > base10kilo:
-			return fmt.Sprintf("%0.2f KB", size/base10kilo)
+		case f > base10tera:
+			return fmt.Sprintf("%0.2f TB", f/base10tera)
+		case f > base10giga:
+			return fmt.Sprintf("%0.2f GB", f/base10giga)
+		case f > base10mega:
+			return fmt.Sprintf("%0.2f MB", f/base10mega)
+		case f > base10kilo:
+			return fmt.Sprintf("%0.2f KB", f/base10kilo)
 		}
 	}
 
 	// Whether we want base 10 or base 2, bytes are bytes.
-	return fmt.Sprintf("%d bytes", i)
+	return fmt.Sprintf("%0.0f bytes", f)
 }
 
-func writer(id int, path string, outputSize int, flushSize int, keep bool, recordStats bool, wg *sync.WaitGroup) {
+func writer(id int, path string, outputSize int, flushSize int, keep bool, recordStats bool, results *writerResults, wg *sync.WaitGroup) {
 	readerBufSize := 32 * 1024 * 1024
 	data := make([]byte, flushSize)
-	stats := NewStatsCollector(path)
 	writeTotal := 0
 
 	defer wg.Done()
@@ -85,13 +95,6 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 		log.Printf("[Writer %d] Starting writer\n", id)
 	}
 	startTime := time.Now()
-	lastStatTime := time.Now()
-	if recordStats && stats != nil {
-		if err := stats.UpdateStats(); err != nil {
-			log.Printf("[Writer %d] Error gathering stats. %s\n", id, err)
-		}
-		lastStatTime = time.Now()
-	}
 	for i := 0; i < outputSize/flushSize; i++ {
 		r, err := dr.Read(data)
 		if err != nil || r < flushSize {
@@ -107,13 +110,6 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 
 		writeTotal += n
 		_ = tmpfile.Sync()
-
-		if time.Now().Sub(lastStatTime).Seconds() > 1.0 && stats != nil {
-			if err := stats.UpdateStats(); err != nil {
-				log.Printf("[Writer %d] Error gathering stats. %s\n", id, err)
-			}
-			lastStatTime = time.Now()
-		}
 	}
 	if writeTotal < outputSize {
 		r, err := dr.Read(data)
@@ -131,20 +127,20 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 	}
 	_ = tmpfile.Sync()
 	_ = tmpfile.Close()
-	if recordStats && stats != nil {
-		stats.UpdateStats()
-	}
 
-	log.Printf(
-		"[Writer %d] Wrote %s to %s (%s/s, %0.2f sec.)\n",
-		id,
-		sizeHumanizer(writeTotal, true),
-		tmpfile.Name(),
-		sizeHumanizer(int(float64(writeTotal)/time.Now().Sub(startTime).Seconds()), true),
-		time.Now().Sub(startTime).Seconds(),
-	)
-	if recordStats {
-		fmt.Printf("\n** STATS **\n%s\n", stats)
+	results.Lock()
+	results.d[path] = append(results.d[path], &throughput{writer: id, bytes: writeTotal, time: time.Now().Sub(startTime)})
+	results.Unlock()
+
+	if verbose {
+		log.Printf(
+			"[Writer %d] Wrote %s to %s (%s/s, %0.2f sec.)\n",
+			id,
+			sizeHumanizer(float64(writeTotal), true),
+			tmpfile.Name(),
+			sizeHumanizer(float64(writeTotal)/time.Now().Sub(startTime).Seconds(), true),
+			time.Now().Sub(startTime).Seconds(),
+		)
 	}
 }
 
@@ -156,10 +152,16 @@ func main() {
 	var flushSize int
 	var wg sync.WaitGroup
 
+	statsStopper := make(chan bool)
+	stats := statsCollection{semaphore: statsStopper}
+
+	results := new(writerResults)
+	results.d = make(map[string][]*throughput)
+
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
+	flag.BoolVar(&verbose, "verbose", false, "Output extra running messages")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
-	//flag.BoolVar(&fallocate, "fallocate", false, "Use fallocate to pre-allocate files")
 	flag.IntVar(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
 	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
 	flag.IntVar(&size, "size", 32*1024*1024, "The target file size for each writer")
@@ -181,14 +183,34 @@ func main() {
 	// TODO: Sanity check the flushSize value
 
 	writerID := 0
+	if recordStats {
+		go stats.CollectStats()
+	}
+
 	log.Printf("Starting %d writers\n", writers)
 	for i := 0; i < writers; i++ {
 		for _, pathValue := range flag.Args() {
+			stats.Add(DevFromPath(pathValue))
 			wg.Add(1)
-			go writer(writerID, pathValue, size, flushSize, keep, recordStats, &wg)
+			go writer(writerID, pathValue, size, flushSize, keep, recordStats, results, &wg)
 			writerID++
 		}
 	}
-
 	wg.Wait()
+
+	pathThroughput := make(map[string]float64)
+	for key, value := range results.d {
+		for _, item := range value {
+			pathThroughput[key] += float64(item.bytes) / item.time.Seconds()
+			if verbose {
+				log.Printf("%s: [%d]: %s/sec\n", key, item.writer, sizeHumanizer(float64(item.bytes)/item.time.Seconds(), true))
+			}
+		}
+		log.Printf("%s: %s/sec\n", key, sizeHumanizer(pathThroughput[key], true))
+	}
+
+	if recordStats {
+		statsStopper <- true
+		fmt.Printf("\nStats output:\n%s\n", stats.csv())
+	}
 }
