@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"runtime/pprof"
 	"sync"
 	"time"
 )
@@ -145,12 +146,16 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 }
 
 func main() {
-	var keep bool
-	var recordStats bool
-	var size int
-	var writers int
-	var flushSize int
-	var wg sync.WaitGroup
+	var (
+		cpuprofile  string
+		keep        bool
+		memprofile  string
+		recordStats bool
+		size        int
+		writers     int
+		flushSize   int
+		wg          sync.WaitGroup
+	)
 
 	statsStopper := make(chan bool)
 	stats := statsCollection{semaphore: statsStopper}
@@ -158,13 +163,15 @@ func main() {
 	results := new(writerResults)
 	results.d = make(map[string][]*throughput)
 
+	flag.StringVar(&cpuprofile, "cpuprofile", "", "Write the CPU profile to a file")
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
-	flag.BoolVar(&verbose, "verbose", false, "Output extra running messages")
-	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
-	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
 	flag.IntVar(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
-	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
+	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
+	flag.StringVar(&memprofile, "memprofile", "", "Write the memory profile to a file")
+	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
 	flag.IntVar(&size, "size", 32*1024*1024, "The target file size for each writer")
+	flag.BoolVar(&verbose, "verbose", false, "Output extra running messages")
+	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
 	flag.Parse()
 
 	flag.Usage = func() {
@@ -178,6 +185,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: You must specify at least one output path.\n")
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if cpuprofile != "" {
+		cpuprofile_file, err := os.Create(cpuprofile)
+		if err != nil {
+			log.Panic(err)
+		}
+		pprof.StartCPUProfile(cpuprofile_file)
+		defer pprof.StopCPUProfile()
 	}
 
 	// TODO: Sanity check the flushSize value
@@ -212,5 +228,13 @@ func main() {
 	if recordStats {
 		statsStopper <- true
 		fmt.Printf("\nStats output:\n%s\n", stats.csv())
+	}
+
+	if memprofile != "" {
+		memprofile_file, err := os.Create(memprofile)
+		if err != nil {
+			log.Panic(err)
+		}
+		pprof.Lookup("heap").WriteTo(memprofile_file, 2)
 	}
 }

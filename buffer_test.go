@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/ioutil"
 	"testing"
 	"time"
 )
@@ -63,6 +64,7 @@ func TestNewDataReader(t *testing.T) {
 }
 
 func BenchmarkDataReader_Read(b *testing.B) {
+	b.ReportAllocs()
 	data := make([]byte, 65536)
 	r := NewDataReader(32 * 1024 * 1024)
 
@@ -77,4 +79,45 @@ func BenchmarkDataReader_Read(b *testing.B) {
 		totalCopied,
 		sizeHumanizer(float64(totalCopied)/time.Now().Sub(startTime).Seconds(), true),
 	)
+}
+
+func BenchmarkDataWrite(b *testing.B) {
+	b.ReportAllocs()
+	readerBufSize := 32 * 1024 * 1024
+	flushSize := 1 * 1024 * 1024
+	outputSize := 1 * 1024 * 1024 * 1024
+	data := make([]byte, flushSize)
+
+	dr := NewDataReader(readerBufSize)
+	tmpfile := ioutil.Discard
+
+	for run := 0; run < b.N; run++ {
+		writeTotal := 0
+		startTime := time.Now()
+		for i := 0; i < outputSize/flushSize; i++ {
+			r, err := dr.Read(data)
+			if err != nil || r < flushSize {
+				b.Errorf("Reader failed. Err: %s, read: %d, requested %d\n", err, r, flushSize)
+				return
+			}
+			n, _ := tmpfile.Write(data)
+			writeTotal += n
+		}
+		if writeTotal < outputSize {
+			r, err := dr.Read(data)
+			if err != nil || r < flushSize {
+				b.Errorf("Reader failed. Err: %s, read: %d, requested %d\n", err, r, flushSize)
+				return
+			}
+			n, _ := tmpfile.Write(data[:outputSize-writeTotal])
+			writeTotal += n
+		}
+
+		b.Logf(
+			"Wrote %s (%s/s, %0.2f sec.)\n",
+			sizeHumanizer(float64(writeTotal), true),
+			sizeHumanizer(float64(writeTotal)/time.Now().Sub(startTime).Seconds(), true),
+			time.Now().Sub(startTime).Seconds(),
+		)
+	}
 }
