@@ -69,9 +69,15 @@ func sizeHumanizer(f float64, base2 bool) string {
 }
 
 func writer(id int, path string, outputSize int, flushSize int, keep bool, recordStats bool, results *writerResults, wg *sync.WaitGroup) {
+	var data []byte
+
 	readerBufSize := 32 * 1024 * 1024
-	data := make([]byte, flushSize)
 	writeTotal := 0
+
+	data = make([]byte, flushSize)
+	if flushSize <= 0 {
+		data = make([]byte, readerBufSize)
+	}
 
 	defer wg.Done()
 
@@ -96,7 +102,7 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 		log.Printf("[Writer %d] Starting writer\n", id)
 	}
 	startTime := time.Now()
-	for i := 0; i < outputSize/flushSize; i++ {
+	for writeTotal + len(data) <= outputSize {
 		r, err := dr.Read(data)
 		if err != nil || r < flushSize {
 			return
@@ -110,7 +116,9 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 		}
 
 		writeTotal += n
-		_ = tmpfile.Sync()
+		if flushSize > 0 {
+			_ = tmpfile.Sync()
+		}
 	}
 	if writeTotal < outputSize {
 		r, err := dr.Read(data)

@@ -123,7 +123,7 @@ func BenchmarkThroughput(b *testing.B) {
 	for run := 0; run < b.N; run++ {
 		writeTotal := 0
 		startTime := time.Now()
-		for i := 0; i < outputSize/flushSize; i++ {
+		for writeTotal + len(data) <= outputSize {
 			r, err := dr.Read(data)
 			if err != nil || r < flushSize {
 				b.Errorf("Reader failed. Err: %s, read: %d, requested %d\n", err, r, flushSize)
