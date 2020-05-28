@@ -51,6 +51,35 @@ func TestDataReader_Read(t *testing.T) {
 	}
 }
 
+func TestDataReaderSizeRange(t *testing.T) {
+	maxSize := 1024 * 1024
+	dataReader := NewDataReader(maxSize / 2)
+
+	t.Log("Testing buffer sizes")
+	for i := 1; i < maxSize+1; i += 1024 {
+		//t.Logf("Testing buffer size %d bytes\n", i)
+		data := make([]byte, i)
+		d, _ := dataReader.Read(data)
+		if d != i {
+			t.Errorf("Reader didn't read %d bytes instead of %d.\n", d, i)
+		}
+	}
+}
+
+func TestDataReaderIndexes(t *testing.T) {
+	maxSize := 1024 * 1024
+	dataReader := NewDataReader(maxSize)
+	buffer := make([]byte, 1)
+
+	t.Log("Testing reader indexes")
+	for i := 1; i < maxSize+1; i++ {
+		d, _ := dataReader.Read(buffer)
+		if d != 1 {
+			t.Errorf("Reader read %d bytes instead of 1.\n", d)
+		}
+	}
+}
+
 func TestNewDataReader(t *testing.T) {
 	t.Log("Verifying minimum read buffer size")
 	if testReader := NewDataReader(256); len(testReader.data) < 65536 {
@@ -81,7 +110,7 @@ func BenchmarkDataReader_Read(b *testing.B) {
 	)
 }
 
-func BenchmarkDataWrite(b *testing.B) {
+func BenchmarkThroughput(b *testing.B) {
 	b.ReportAllocs()
 	readerBufSize := 32 * 1024 * 1024
 	flushSize := 1 * 1024 * 1024
