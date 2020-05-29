@@ -16,7 +16,8 @@ func NewDataReader(size int) *dataReader {
 	}
 
 	data := make([]byte, size)
-	dr := &dataReader{data: data, position: 0}
+	initialPosition := rand.Intn(len(data))
+	dr := &dataReader{data: data, position: initialPosition}
 
 	_, err := rand.Read(dr.data)
 	if err != nil {
