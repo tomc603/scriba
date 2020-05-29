@@ -23,8 +23,11 @@ type writerResults struct {
 }
 
 var (
-	debug   bool
-	verbose bool
+	VersionMajor string = "0"
+	VersionMinor string = "4"
+	VersionBuild string
+	debug        bool
+	verbose      bool
 )
 
 func sizeHumanizer(f float64, base2 bool) string {
@@ -102,7 +105,7 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 		log.Printf("[Writer %d] Starting writer\n", id)
 	}
 	startTime := time.Now()
-	for writeTotal + len(data) <= outputSize {
+	for writeTotal+len(data) <= outputSize {
 		r, err := dr.Read(data)
 		if err != nil || r < flushSize {
 			return
@@ -134,7 +137,9 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 		}
 		writeTotal += n
 	}
-	_ = tmpfile.Sync()
+	if flushSize > 0 {
+		_ = tmpfile.Sync()
+	}
 	_ = tmpfile.Close()
 
 	results.Lock()
@@ -156,13 +161,14 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 func main() {
 	var (
 		cpuprofile  string
+		flushSize   int
 		keep        bool
 		memprofile  string
 		recordStats bool
 		size        int
-		writers     int
-		flushSize   int
+		version     bool
 		wg          sync.WaitGroup
+		writers     int
 	)
 
 	statsStopper := make(chan bool)
@@ -170,6 +176,13 @@ func main() {
 
 	results := new(writerResults)
 	results.d = make(map[string][]*throughput)
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n\t%s [-debug] [-flush N] [-size N] [writers N] PATH [PATH...]\n\n", os.Args[0])
+		flag.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
+	}
 
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "Write the CPU profile to a file")
 	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
@@ -179,21 +192,9 @@ func main() {
 	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
 	flag.IntVar(&size, "size", 32*1024*1024, "The target file size for each writer")
 	flag.BoolVar(&verbose, "verbose", false, "Output extra running messages")
+	flag.BoolVar(&version, "version", false, "Output binary version and exit")
 	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
 	flag.Parse()
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\n\t%s [-debug] [-flush N] [-size N] [writers N] PATH [PATH...]\n\n", os.Args[0])
-		flag.PrintDefaults()
-		fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
-	}
-
-	if len(flag.Args()) == 0 {
-		fmt.Fprintf(os.Stderr, "Error: You must specify at least one output path.\n")
-		flag.Usage()
-		os.Exit(1)
-	}
 
 	if cpuprofile != "" {
 		cpuprofile_file, err := os.Create(cpuprofile)
@@ -204,7 +205,16 @@ func main() {
 		defer pprof.StopCPUProfile()
 	}
 
-	// TODO: Sanity check the flushSize value
+	if version {
+		fmt.Printf("%s version %s.%s.%s\n", os.Args[0], VersionMajor, VersionMinor, VersionBuild)
+		os.Exit(0)
+	}
+
+	if len(flag.Args()) == 0 {
+		fmt.Fprintf(os.Stderr, "Error: You must specify at least one output path.\n")
+		flag.Usage()
+		os.Exit(1)
+	}
 
 	writerID := 0
 	if recordStats {
