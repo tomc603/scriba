@@ -30,48 +30,7 @@ var (
 	verbose      bool
 )
 
-func sizeHumanizer(f float64, base2 bool) string {
-	const (
-		base2kilo = 1 << 10
-		base2mega = 1 << 20
-		base2giga = 1 << 30
-		base2tera = 1 << 40
-
-		base10kilo = 1e3
-		base10mega = 1e6
-		base10giga = 1e9
-		base10tera = 1e12
-	)
-
-	if base2 {
-		switch {
-		case f > base2tera:
-			return fmt.Sprintf("%0.2f TB", f/base2tera)
-		case f > base2giga:
-			return fmt.Sprintf("%0.2f GB", f/base2giga)
-		case f > base2mega:
-			return fmt.Sprintf("%0.2f MB", f/base2mega)
-		case f > base2kilo:
-			return fmt.Sprintf("%0.2f KB", f/base2kilo)
-		}
-	} else {
-		switch {
-		case f > base10tera:
-			return fmt.Sprintf("%0.2f TB", f/base10tera)
-		case f > base10giga:
-			return fmt.Sprintf("%0.2f GB", f/base10giga)
-		case f > base10mega:
-			return fmt.Sprintf("%0.2f MB", f/base10mega)
-		case f > base10kilo:
-			return fmt.Sprintf("%0.2f KB", f/base10kilo)
-		}
-	}
-
-	// Whether we want base 10 or base 2, bytes are bytes.
-	return fmt.Sprintf("%0.0f bytes", f)
-}
-
-func writer(id int, path string, outputSize int, flushSize int, keep bool, recordStats bool, results *writerResults, wg *sync.WaitGroup) {
+func writer(id int, path string, outputSize int, flushSize int, keep bool, results *writerResults, wg *sync.WaitGroup) {
 	var data []byte
 
 	readerBufSize := 32 * 1024 * 1024
@@ -148,11 +107,11 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, recor
 
 	if verbose {
 		log.Printf(
-			"[Writer %d] Wrote %s to %s (%s/s, %0.2f sec.)\n",
+			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
 			id,
-			sizeHumanizer(float64(writeTotal), true),
+			float64(writeTotal) / MiB,
 			tmpfile.Name(),
-			sizeHumanizer(float64(writeTotal)/time.Now().Sub(startTime).Seconds(), true),
+			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
 			time.Now().Sub(startTime).Seconds(),
 		)
 	}
@@ -226,7 +185,7 @@ func main() {
 		for _, pathValue := range flag.Args() {
 			stats.Add(DevFromPath(pathValue))
 			wg.Add(1)
-			go writer(writerID, pathValue, size, flushSize, keep, recordStats, results, &wg)
+			go writer(writerID, pathValue, size, flushSize, keep, results, &wg)
 			writerID++
 		}
 	}
@@ -237,10 +196,10 @@ func main() {
 		for _, item := range value {
 			pathThroughput[key] += float64(item.bytes) / item.time.Seconds()
 			if verbose {
-				log.Printf("%s: [%d]: %s/sec\n", key, item.writer, sizeHumanizer(float64(item.bytes)/item.time.Seconds(), true))
+				log.Printf("%s: [%d]: %0.2f/sec\n", key, item.writer, float64(item.bytes)/MiB/item.time.Seconds())
 			}
 		}
-		log.Printf("%s: %s/sec\n", key, sizeHumanizer(pathThroughput[key], true))
+		log.Printf("%s: %0.2f/sec\n", key, pathThroughput[key]/MiB)
 	}
 
 	if recordStats {

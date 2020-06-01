@@ -104,9 +104,9 @@ func BenchmarkDataReader_Read(b *testing.B) {
 		totalCopied += copied
 	}
 	b.Logf(
-		"Copied %d, %s/sec",
+		"Copied %d, %0.2f/sec",
 		totalCopied,
-		sizeHumanizer(float64(totalCopied)/time.Now().Sub(startTime).Seconds(), true),
+		float64(totalCopied)/MiB/time.Now().Sub(startTime).Seconds(),
 	)
 }
 
@@ -143,9 +143,9 @@ func BenchmarkThroughput(b *testing.B) {
 		}
 
 		b.Logf(
-			"Wrote %s (%s/s, %0.2f sec.)\n",
-			sizeHumanizer(float64(writeTotal), true),
-			sizeHumanizer(float64(writeTotal)/time.Now().Sub(startTime).Seconds(), true),
+			"Wrote %0.2f (%0.2f/s, %0.2f sec.)\n",
+			float64(writeTotal)/MiB,
+			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
 			time.Now().Sub(startTime).Seconds(),
 		)
 	}
