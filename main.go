@@ -30,7 +30,49 @@ var (
 	verbose      bool
 )
 
+func sizeHumanizer(f float64, base2 bool) string {
+	const (
+		base2kilo = 1 << 10
+		base2mega = 1 << 20
+		base2giga = 1 << 30
+		base2tera = 1 << 40
+
+		base10kilo = 1e3
+		base10mega = 1e6
+		base10giga = 1e9
+		base10tera = 1e12
+	)
+
+	if base2 {
+		switch {
+		case f > base2tera:
+			return fmt.Sprintf("%0.2f TB", f/base2tera)
+		case f > base2giga:
+			return fmt.Sprintf("%0.2f GB", f/base2giga)
+		case f > base2mega:
+			return fmt.Sprintf("%0.2f MB", f/base2mega)
+		case f > base2kilo:
+			return fmt.Sprintf("%0.2f KB", f/base2kilo)
+		}
+	} else {
+		switch {
+		case f > base10tera:
+			return fmt.Sprintf("%0.2f TB", f/base10tera)
+		case f > base10giga:
+			return fmt.Sprintf("%0.2f GB", f/base10giga)
+		case f > base10mega:
+			return fmt.Sprintf("%0.2f MB", f/base10mega)
+		case f > base10kilo:
+			return fmt.Sprintf("%0.2f KB", f/base10kilo)
+		}
+	}
+
+	// Whether we want base 10 or base 2, bytes are bytes.
+	return fmt.Sprintf("%0.0f bytes", f)
+}
+
 func writer(id int, path string, outputSize int, flushSize int, keep bool, results *writerResults, wg *sync.WaitGroup) {
+	var outFile *os.File
 	var data []byte
 
 	readerBufSize := 32 * 1024 * 1024
@@ -51,13 +93,24 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 		log.Printf("[Writer %d] Generated %d random bytes", id, readerBufSize)
 	}
 
-	tmpfile, err := ioutil.TempFile(path, "output*.data")
-	if err != nil {
-		log.Printf("[Writer %d] Error: %s\n", id, err)
-		return
+	if path == "/dev/null" {
+		tmpfile, err := os.OpenFile("/dev/null", os.O_WRONLY, 0644)
+		if err != nil {
+			log.Printf("[Writer %d] Error: %s\n", id, err)
+			return
+		}
+		outFile = tmpfile
+	} else {
+		tmpfile, err := ioutil.TempFile(path, "output*.data")
+		if err != nil {
+			log.Printf("[Writer %d] Error: %s\n", id, err)
+			return
+		}
+		outFile = tmpfile
 	}
-	if !keep {
-		defer os.Remove(tmpfile.Name())
+	defer outFile.Close()
+	if path != "/dev/null" && !keep {
+		defer os.Remove(outFile.Name())
 	}
 
 	if debug {
@@ -70,16 +123,16 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 			return
 		}
 
-		n, err := tmpfile.Write(data)
+		n, err := outFile.Write(data)
 		if err != nil {
-			_ = tmpfile.Close()
+			_ = outFile.Close()
 			log.Printf("[Writer %d] Error: %s\n", id, err)
 			return
 		}
 
 		writeTotal += n
 		if flushSize > 0 {
-			_ = tmpfile.Sync()
+			_ = outFile.Sync()
 		}
 	}
 	if writeTotal < outputSize {
@@ -88,18 +141,18 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 			return
 		}
 
-		n, err := tmpfile.Write(data[:outputSize-writeTotal])
+		n, err := outFile.Write(data[:outputSize-writeTotal])
 		if err != nil {
-			_ = tmpfile.Close()
+			_ = outFile.Close()
 			log.Printf("[Writer %d] Error: %s\n", id, err)
 			return
 		}
 		writeTotal += n
 	}
 	if flushSize > 0 {
-		_ = tmpfile.Sync()
+		_ = outFile.Sync()
 	}
-	_ = tmpfile.Close()
+	_ = outFile.Close()
 
 	results.Lock()
 	results.d[path] = append(results.d[path], &throughput{writer: id, bytes: writeTotal, time: time.Now().Sub(startTime)})
@@ -110,7 +163,7 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
 			id,
 			float64(writeTotal) / MiB,
-			tmpfile.Name(),
+			outFile.Name(),
 			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
 			time.Now().Sub(startTime).Seconds(),
 		)
