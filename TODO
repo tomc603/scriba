@@ -1,0 +1,5 @@
+Add token credit system for read/write ratio
+ - Atomic increment every read operation
+ - When the counter reaches the requested threshold, trigger a write or read operation
+Add reader routine to add read, read/write load
+Add timed mode rather than capacity mode
