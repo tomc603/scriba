@@ -12,7 +12,7 @@ import (
 )
 
 type throughput struct {
-	writer int
+	id int
 	bytes  int
 	time   time.Duration
 }
@@ -28,7 +28,9 @@ var (
 	VersionBuild string
 	debug        bool
 	verbose      bool
+	//ratio_count  uint64
 )
+
 
 func sizeHumanizer(f float64, base2 bool) string {
 	const (
@@ -118,6 +120,9 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 	}
 	startTime := time.Now()
 	for writeTotal+len(data) <= outputSize {
+		// Track write loop counts globally
+		//atomic.AddUint64(&ratio_count, 1)
+
 		r, err := dr.Read(data)
 		if err != nil || r < flushSize {
 			return
@@ -153,9 +158,10 @@ func writer(id int, path string, outputSize int, flushSize int, keep bool, resul
 		_ = outFile.Sync()
 	}
 	_ = outFile.Close()
+	//atomic.StoreUint64(&ratio_count, 0)
 
 	results.Lock()
-	results.d[path] = append(results.d[path], &throughput{writer: id, bytes: writeTotal, time: time.Now().Sub(startTime)})
+	results.d[path] = append(results.d[path], &throughput{id: id, bytes: writeTotal, time: time.Now().Sub(startTime)})
 	results.Unlock()
 
 	if verbose {
@@ -249,11 +255,13 @@ func main() {
 		for _, item := range value {
 			pathThroughput[key] += float64(item.bytes) / item.time.Seconds()
 			if verbose {
-				log.Printf("%s: [%d]: %0.2f/sec\n", key, item.writer, float64(item.bytes)/MiB/item.time.Seconds())
+				log.Printf("%s: [%d]: %0.2f/sec\n", key, item.id, float64(item.bytes)/MiB/item.time.Seconds())
 			}
 		}
 		log.Printf("%s: %0.2f/sec\n", key, pathThroughput[key]/MiB)
 	}
+
+	// log.Printf("Write iterations: %d\n", ratio_count)
 
 	if recordStats {
 		statsStopper <- true
