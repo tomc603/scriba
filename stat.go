@@ -91,7 +91,7 @@ func (s *statsCollection) Add(device string) {
 
 	for _, item := range s.diskstats {
 		if item.device == device {
-			if debug {
+			if Debug {
 				log.Printf("Device %s already being polled for stats\n", device)
 			}
 			return
@@ -110,7 +110,7 @@ func (s *statsCollection) CollectStats() {
 			return
 		case <-s.t.C:
 			for _, item := range s.diskstats {
-				if debug {
+				if Debug {
 					log.Printf("Updating stats for %s\n", item.device)
 				}
 
@@ -232,12 +232,12 @@ func DevFromPath(path string) string {
 	var candidate string
 	var device string
 
-	if debug {
+	if Debug {
 		log.Printf("Discovering device for path %s\n", path)
 	}
 	mountsFile, err := os.Open("/proc/self/mounts")
 	if err != nil {
-		if debug {
+		if Debug {
 			log.Printf("Unable to read mounts file. %s\n", err)
 		}
 		return ""
@@ -250,12 +250,12 @@ func DevFromPath(path string) string {
 	for scanner.Scan() {
 		mountInfo := strings.Fields(scanner.Text())
 		if strings.HasPrefix(path, mountInfo[1]) {
-			if debug {
+			if Debug {
 				log.Printf("Matched mountpoint %s, dev %s\n", mountInfo[1], mountInfo[0])
 			}
 
 			if len(mountInfo[1]) > len(candidate) {
-				if debug {
+				if Debug {
 					log.Printf("Updating candidate to %s from %s\n", mountInfo[1], candidate)
 				}
 

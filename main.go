@@ -3,10 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
 	"runtime/pprof"
+	"sort"
 	"sync"
 	"time"
 )
@@ -14,6 +14,7 @@ import (
 type throughput struct {
 	id int
 	bytes  int
+	latencies []time.Duration
 	time   time.Duration
 }
 
@@ -24,10 +25,10 @@ type writerResults struct {
 
 var (
 	VersionMajor string = "0"
-	VersionMinor string = "4"
+	VersionMinor string = "6"
 	VersionBuild string
-	debug        bool
-	verbose      bool
+	Debug        bool
+	Verbose      bool
 	//ratio_count  uint64
 )
 
@@ -73,107 +74,13 @@ func sizeHumanizer(f float64, base2 bool) string {
 	return fmt.Sprintf("%0.0f bytes", f)
 }
 
-func writer(id int, path string, outputSize int, flushSize int, keep bool, results *writerResults, wg *sync.WaitGroup) {
-	var outFile *os.File
-	var data []byte
-
-	readerBufSize := 32 * 1024 * 1024
-	writeTotal := 0
-
-	data = make([]byte, flushSize)
-	if flushSize <= 0 {
-		data = make([]byte, readerBufSize)
+func median(values []float64) float64 {
+	middle := len(values)/2
+	sort.Float64s(values)
+	if len(values)%2==0 {
+		return values[middle-1] + values[middle+1] / 2
 	}
-
-	defer wg.Done()
-
-	if debug {
-		log.Printf("[Writer %d] Generating random data buffer\n", id)
-	}
-	dr := NewDataReader(readerBufSize)
-	if debug {
-		log.Printf("[Writer %d] Generated %d random bytes", id, readerBufSize)
-	}
-
-	if path == "/dev/null" {
-		tmpfile, err := os.OpenFile("/dev/null", os.O_WRONLY, 0644)
-		if err != nil {
-			log.Printf("[Writer %d] Error: %s\n", id, err)
-			return
-		}
-		outFile = tmpfile
-	} else {
-		tmpfile, err := ioutil.TempFile(path, "output*.data")
-		if err != nil {
-			log.Printf("[Writer %d] Error: %s\n", id, err)
-			return
-		}
-		outFile = tmpfile
-	}
-	defer outFile.Close()
-	if path != "/dev/null" && !keep {
-		defer os.Remove(outFile.Name())
-	}
-
-	if debug {
-		log.Printf("[Writer %d] Starting writer\n", id)
-	}
-	startTime := time.Now()
-	for writeTotal+len(data) <= outputSize {
-		// Track write loop counts globally
-		//atomic.AddUint64(&ratio_count, 1)
-
-		r, err := dr.Read(data)
-		if err != nil || r < flushSize {
-			return
-		}
-
-		n, err := outFile.Write(data)
-		if err != nil {
-			_ = outFile.Close()
-			log.Printf("[Writer %d] Error: %s\n", id, err)
-			return
-		}
-
-		writeTotal += n
-		if flushSize > 0 {
-			_ = outFile.Sync()
-		}
-	}
-	if writeTotal < outputSize {
-		r, err := dr.Read(data)
-		if err != nil || r < flushSize {
-			return
-		}
-
-		n, err := outFile.Write(data[:outputSize-writeTotal])
-		if err != nil {
-			_ = outFile.Close()
-			log.Printf("[Writer %d] Error: %s\n", id, err)
-			return
-		}
-		writeTotal += n
-	}
-	if flushSize > 0 {
-		_ = outFile.Sync()
-	}
-	_ = outFile.Close()
-	//atomic.StoreUint64(&ratio_count, 0)
-
-	results.Lock()
-	results.d[path] = append(results.d[path], &throughput{id: id, bytes: writeTotal, time: time.Now().Sub(startTime)})
-	results.Unlock()
-
-	if verbose {
-		log.Printf(
-			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
-			id,
-			float64(writeTotal) / MiB,
-			outFile.Name(),
-			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
-			time.Now().Sub(startTime).Seconds(),
-		)
-	}
+	return values[middle]
 }
 
 func main() {
@@ -203,13 +110,13 @@ func main() {
 	}
 
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "Write the CPU profile to a file")
-	flag.BoolVar(&debug, "debug", false, "Output debugging messages")
+	flag.BoolVar(&Debug, "debug", false, "Output debugging messages")
 	flag.IntVar(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.StringVar(&memprofile, "memprofile", "", "Write the memory profile to a file")
 	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
 	flag.IntVar(&size, "size", 32*1024*1024, "The target file size for each writer")
-	flag.BoolVar(&verbose, "verbose", false, "Output extra running messages")
+	flag.BoolVar(&Verbose, "verbose", false, "Output extra running messages")
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
 	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
 	flag.Parse()
@@ -254,12 +161,18 @@ func main() {
 	for key, value := range results.d {
 		for _, item := range value {
 			pathThroughput[key] += float64(item.bytes) / item.time.Seconds()
-			if verbose {
-				log.Printf("%s: [%d]: %0.2f/sec\n", key, item.id, float64(item.bytes)/MiB/item.time.Seconds())
+			if Verbose {
+				pathLatency := int64(0)
+				for _, latency := range item.latencies {
+					pathLatency += latency.Microseconds()
+					//log.Printf("%s: [%d]: %0.2f ms", key, item.id, float64(latency.Microseconds())/1000)
+				}
+				log.Printf("%s: [%d]: %0.2f MiB/sec, %0.2f ms avg., %0.2f ms med.\n", key, item.id, float64(item.bytes)/MiB/item.time.Seconds(), float64(pathLatency)/float64(len(item.latencies))/1000, 0.0)
 			}
 		}
-		log.Printf("%s: %0.2f/sec\n", key, pathThroughput[key]/MiB)
+		log.Printf("%s: %0.2f MiB/sec\n", key, pathThroughput[key]/MiB)
 	}
+
 
 	// log.Printf("Write iterations: %d\n", ratio_count)
 
