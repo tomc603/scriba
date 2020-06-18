@@ -12,10 +12,10 @@ import (
 )
 
 type throughput struct {
-	id int
-	bytes  int
+	id        int
+	bytes     uint64
 	latencies []time.Duration
-	time   time.Duration
+	time      time.Duration
 }
 
 type writerResults struct {
@@ -31,7 +31,6 @@ var (
 	Verbose      bool
 	//ratio_count  uint64
 )
-
 
 func sizeHumanizer(f float64, base2 bool) string {
 	const (
@@ -75,25 +74,26 @@ func sizeHumanizer(f float64, base2 bool) string {
 }
 
 func median(values []float64) float64 {
-	middle := len(values)/2
+	middle := len(values) / 2
 	sort.Float64s(values)
-	if len(values)%2==0 {
-		return values[middle-1] + values[middle+1] / 2
+	if len(values)%2 == 0 {
+		return values[middle-1] + values[middle+1]/2
 	}
 	return values[middle]
 }
 
 func main() {
 	var (
-		cpuprofile  string
-		flushSize   int
-		keep        bool
-		memprofile  string
-		recordStats bool
-		size        int
-		version     bool
-		wg          sync.WaitGroup
-		writers     int
+		cpuprofile    string
+		flushSize     uint64
+		keep          bool
+		memprofile    string
+		recordStats   bool
+		size          uint64
+		version       bool
+		wg            sync.WaitGroup
+		writerConfigs []*WriterConfig
+		writers       int
 	)
 
 	statsStopper := make(chan bool)
@@ -111,11 +111,11 @@ func main() {
 
 	flag.StringVar(&cpuprofile, "cpuprofile", "", "Write the CPU profile to a file")
 	flag.BoolVar(&Debug, "debug", false, "Output debugging messages")
-	flag.IntVar(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
+	flag.Uint64Var(&flushSize, "flush", 65536, "The amount of ata each writer should write before calling Sync")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.StringVar(&memprofile, "memprofile", "", "Write the memory profile to a file")
 	flag.BoolVar(&recordStats, "stats", false, "Track block device IO statistics while testing")
-	flag.IntVar(&size, "size", 32*1024*1024, "The target file size for each writer")
+	flag.Uint64Var(&size, "size", 32*1024*1024, "The target file size for each writer")
 	flag.BoolVar(&Verbose, "verbose", false, "Output extra running messages")
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
 	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
@@ -141,17 +141,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	writerID := 0
 	if recordStats {
 		go stats.CollectStats()
 	}
 
 	log.Printf("Starting %d writers\n", writers)
+	writerID := 0
 	for i := 0; i < writers; i++ {
 		for _, pathValue := range flag.Args() {
+			wc := WriterConfig{
+				ID:         writerID,
+				FlushSize:  flushSize,
+				Keep:       keep,
+				OutputSize: size,
+				WriterPath: pathValue,
+				WriterType: Sequential,
+				Results:    results,
+				wg:         &wg,
+			}
+			writerConfigs = append(writerConfigs, &wc)
 			stats.Add(DevFromPath(pathValue))
 			wg.Add(1)
-			go writer(writerID, pathValue, size, flushSize, keep, results, &wg)
+			go writer(&wc)
 			writerID++
 		}
 	}
@@ -172,7 +183,6 @@ func main() {
 		}
 		log.Printf("%s: %0.2f MiB/sec\n", key, pathThroughput[key]/MiB)
 	}
-
 
 	// log.Printf("Write iterations: %d\n", ratio_count)
 

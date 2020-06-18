@@ -43,4 +43,3 @@ func humanizeSize(f float64, base2 bool) string {
 	// Whether we want base 10 or base 2, bytes are bytes.
 	return fmt.Sprintf("%0.0f bytes", f)
 }
-
