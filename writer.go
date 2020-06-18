@@ -64,6 +64,11 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			return
 		}
 		outFile = tmpfile
+		if err := outFile.Truncate(int64(config.OutputSize)); err != nil {
+			log.Printf("[Writer %d] Error: Unable to truncate file. %s\n", config.ID, err)
+			return
+		}
+		outFile.Sync()
 	}
 	defer outFile.Close()
 	if config.WriterPath != "/dev/null" && !config.Keep {

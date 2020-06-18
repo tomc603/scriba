@@ -1,5 +1,7 @@
-Add token credit system for read/write ratio
+TODO: Add token credit system for read/write ratio
  - Atomic increment every read operation
  - When the counter reaches the requested threshold, trigger a write or read operation
-Add reader routine to add read, read/write load
-Add timed mode rather than capacity mode
+TODO: Add reader routine to add read, read/write load
+TODO: Add timed mode rather than capacity mode
+TODO: Create percentile function for latencies
+TODO: Histogram function for latencies
