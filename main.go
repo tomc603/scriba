@@ -157,12 +157,11 @@ func main() {
 				WriterPath: pathValue,
 				WriterType: Sequential,
 				Results:    results,
-				wg:         &wg,
 			}
 			writerConfigs = append(writerConfigs, &wc)
 			stats.Add(DevFromPath(pathValue))
 			wg.Add(1)
-			go writer(&wc)
+			go writer(&wc, &wg)
 			writerID++
 		}
 	}

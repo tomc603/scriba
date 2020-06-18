@@ -21,11 +21,10 @@ type WriterConfig struct {
 	OutputSize uint64
 	Results    *writerResults
 	WriterPath string
-	wg         *sync.WaitGroup
 	WriterType uint8
 }
 
-func writer(config *WriterConfig) {
+func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	var (
 		outFile     *os.File
 		data        []byte
@@ -41,7 +40,7 @@ func writer(config *WriterConfig) {
 		data = make([]byte, readerBufSize)
 	}
 
-	defer config.wg.Done()
+	defer wg.Done()
 
 	if Debug {
 		log.Printf("[Writer %d] Generating random data buffer\n", config.ID)
