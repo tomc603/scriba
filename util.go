@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
 const (
 	KiB = 1 << 10
@@ -42,4 +45,13 @@ func humanizeSize(f float64, base2 bool) string {
 
 	// Whether we want base 10 or base 2, bytes are bytes.
 	return fmt.Sprintf("%0.0f bytes", f)
+}
+
+func median(values []float64) float64 {
+	middle := len(values) / 2
+	sort.Float64s(values)
+	if len(values)%2 == 0 {
+		return values[middle-1] + values[middle+1]/2
+	}
+	return values[middle]
 }

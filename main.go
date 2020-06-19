@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"runtime/pprof"
 	"sort"
@@ -23,63 +24,77 @@ type writerResults struct {
 	d map[string][]*throughput
 }
 
+type ByDuration []time.Duration
+
 var (
 	VersionMajor string = "0"
-	VersionMinor string = "6"
+	VersionMinor string = "7"
 	VersionBuild string
 	Debug        bool
 	Verbose      bool
 	//ratio_count  uint64
 )
 
-func sizeHumanizer(f float64, base2 bool) string {
-	const (
-		base2kilo = 1 << 10
-		base2mega = 1 << 20
-		base2giga = 1 << 30
-		base2tera = 1 << 40
+func (d ByDuration) Len() int           { return len(d) }
+func (d ByDuration) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
+func (d ByDuration) Less(i, j int) bool { return d[i] < d[j] }
 
-		base10kilo = 1e3
-		base10mega = 1e6
-		base10giga = 1e9
-		base10tera = 1e12
-	)
+func (t *throughput) Average() time.Duration {
+	var totalTime time.Duration
 
-	if base2 {
-		switch {
-		case f > base2tera:
-			return fmt.Sprintf("%0.2f TB", f/base2tera)
-		case f > base2giga:
-			return fmt.Sprintf("%0.2f GB", f/base2giga)
-		case f > base2mega:
-			return fmt.Sprintf("%0.2f MB", f/base2mega)
-		case f > base2kilo:
-			return fmt.Sprintf("%0.2f KB", f/base2kilo)
-		}
-	} else {
-		switch {
-		case f > base10tera:
-			return fmt.Sprintf("%0.2f TB", f/base10tera)
-		case f > base10giga:
-			return fmt.Sprintf("%0.2f GB", f/base10giga)
-		case f > base10mega:
-			return fmt.Sprintf("%0.2f MB", f/base10mega)
-		case f > base10kilo:
-			return fmt.Sprintf("%0.2f KB", f/base10kilo)
-		}
+	for _, value := range t.latencies {
+		totalTime += value
 	}
 
-	// Whether we want base 10 or base 2, bytes are bytes.
-	return fmt.Sprintf("%0.0f bytes", f)
+	return time.Duration(int64(totalTime) / int64(len(t.latencies)))
 }
 
-func median(values []float64) float64 {
-	middle := len(values) / 2
-	sort.Float64s(values)
-	if len(values)%2 == 0 {
-		return values[middle-1] + values[middle+1]/2
+func (t *throughput) Max() time.Duration {
+	var maxTime time.Duration
+
+	if len(t.latencies) == 0 {
+		return maxTime
 	}
-	return values[middle]
+
+	for _, value := range t.latencies {
+		if value > maxTime {
+			maxTime = value
+		}
+	}
+
+	return maxTime
+}
+
+func (t *throughput) Min() time.Duration {
+	var minTime time.Duration
+
+	if len(t.latencies) == 0 {
+		return minTime
+	}
+
+	minTime = time.Duration(math.MaxInt64)
+	for _, value := range t.latencies {
+		if value < minTime {
+			minTime = value
+		}
+	}
+
+	return minTime
+}
+
+func (t *throughput) Percentile(q float64) time.Duration {
+	tempSlice := make([]time.Duration, len(t.latencies))
+
+	copy(tempSlice, t.latencies)
+	sort.Sort(ByDuration(tempSlice))
+	k := float64(len(tempSlice)-1) * q
+	floor := math.Floor(k)
+	ceiling := math.Ceil(k)
+	if floor == ceiling {
+		return tempSlice[int(k)]
+	}
+
+	return (tempSlice[int(floor)] + tempSlice[int(ceiling)]) / 2
 }
 
 func main() {
@@ -172,13 +187,19 @@ func main() {
 		for _, item := range value {
 			pathThroughput[key] += float64(item.bytes) / item.time.Seconds()
 			if Verbose {
-				pathLatency := int64(0)
 				for _, latency := range item.latencies {
-					pathLatency += latency.Microseconds()
-					//log.Printf("%s: [%d]: %0.2f ms", key, item.id, float64(latency.Microseconds())/1000)
+					log.Printf(
+						"%s: [%d]: %d us",
+						key, item.id, latency.Microseconds(),
+					)
 				}
-				log.Printf("%s: [%d]: %0.2f MiB/sec, %0.2f ms avg., %0.2f ms med.\n", key, item.id, float64(item.bytes)/MiB/item.time.Seconds(), float64(pathLatency)/float64(len(item.latencies))/1000, 0.0)
 			}
+			log.Printf(
+				"%s: [%d]: %0.2f MiB/sec, Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us\n",
+				key, item.id, float64(item.bytes)/MiB/item.time.Seconds(), item.Min().Microseconds(), item.Max().Microseconds(),
+				item.Average().Microseconds(), item.Percentile(0.50).Microseconds(),
+				item.Percentile(0.95).Microseconds(), item.Percentile(0.99).Microseconds(),
+			)
 		}
 		log.Printf("%s: %0.2f MiB/sec\n", key, pathThroughput[key]/MiB)
 	}
