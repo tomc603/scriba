@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -14,6 +15,15 @@ const (
 	Repeat
 )
 
+type ReaderConfig struct {
+	BlockSize  uint64
+	ID         int
+	TotalSize  int64
+	Results    *writerResults
+	ReaderPath string
+	ReaderType uint8
+}
+
 type WriterConfig struct {
 	FlushSize  uint64
 	ID         int
@@ -22,6 +32,79 @@ type WriterConfig struct {
 	Results    *writerResults
 	WriterPath string
 	WriterType uint8
+}
+
+func reader(config *ReaderConfig, wg *sync.WaitGroup) {
+	var (
+		workFile  *os.File
+		latencies []time.Duration
+		readTotal int64 = 0
+	)
+
+	buf := make([]byte, config.BlockSize)
+
+	defer wg.Done()
+
+	workFile, err := ioutil.TempFile(config.ReaderPath, "output*.data")
+	if err != nil {
+		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
+		return
+	}
+	defer workFile.Close()
+	//defer os.Remove(workFile.Name())
+
+	if err := workFile.Truncate(config.TotalSize); err != nil {
+		log.Printf("[Writer %d] Error: Unable to truncate file. %s\n", config.ID, err)
+		return
+	}
+
+	if err != nil {
+		log.Printf("[Writer %d] Error: Unable to stat() file. %s\n", config.ID, err)
+	}
+
+	if Debug {
+		log.Printf("[Writer %d] Starting writer\n", config.ID)
+	}
+	startTime := time.Now()
+	for readTotal < config.TotalSize {
+		latencyStart := time.Now()
+		n, err := workFile.Read(buf)
+		latencyStop := time.Now().Sub(latencyStart)
+		readTotal += int64(n)
+		if err != nil {
+			if err == io.EOF {
+				// We might read a partial buffer here, but detecting EOF and
+				// seeking to the beginning is the easiest way to continue reading
+				// while we need more data. This should be extremely rare.
+				workFile.Seek(0, 0)
+				continue
+			}
+			log.Printf("[Reader %d] Error: %s\n", config.ID, err)
+			return
+		}
+		// Only include latencies from full transactions so we don't skew data with
+		// partial buffer fills
+		latencies = append(latencies, latencyStop)
+	}
+
+	if readTotal != config.TotalSize {
+		log.Printf("ERROR: Read %d bytes, requested %d.\n", readTotal, config.TotalSize)
+	}
+
+	config.Results.Lock()
+	config.Results.d[config.ReaderPath] = append(config.Results.d[config.ReaderPath], &throughput{id: config.ID, bytes: readTotal, latencies: latencies, time: time.Now().Sub(startTime)})
+	config.Results.Unlock()
+
+	if Verbose {
+		log.Printf(
+			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
+			config.ID,
+			float64(readTotal)/MiB,
+			workFile.Name(),
+			float64(readTotal)/MiB/time.Now().Sub(startTime).Seconds(),
+			time.Now().Sub(startTime).Seconds(),
+		)
+	}
 }
 
 func writer(config *WriterConfig, wg *sync.WaitGroup) {
