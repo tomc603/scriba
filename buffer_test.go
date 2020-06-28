@@ -94,7 +94,7 @@ func TestNewDataReader(t *testing.T) {
 
 func BenchmarkDataReader_Read(b *testing.B) {
 	b.ReportAllocs()
-	data := make([]byte, 65536)
+	data := make([]byte, 64*1024*1024)
 	r := NewDataReader(32 * 1024 * 1024)
 
 	totalCopied := 0

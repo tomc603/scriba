@@ -2,7 +2,6 @@ package main
 
 import (
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"sync"
@@ -16,22 +15,24 @@ const (
 )
 
 type ReaderConfig struct {
-	BlockSize  uint64
-	ID         int
-	TotalSize  int64
-	Results    *writerResults
-	ReaderPath string
-	ReaderType uint8
+	BlockSize   int64
+	ID          int
+	TotalSize   int64
+	Results     *writerResults
+	ReaderPath  string
+	ReaderType  uint8
+	StartOffset int64
 }
 
 type WriterConfig struct {
-	FlushSize  uint64
-	ID         int
-	Keep       bool
-	OutputSize uint64
-	Results    *writerResults
-	WriterPath string
-	WriterType uint8
+	FlushSize   int64
+	ID          int
+	Keep        bool
+	OutputSize  int64
+	Results     *writerResults
+	StartOffset int64
+	WriterPath  string
+	WriterType  uint8
 }
 
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
@@ -45,25 +46,16 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
-	workFile, err := ioutil.TempFile(config.ReaderPath, "output*.data")
+	workFile, err := os.OpenFile(config.ReaderPath, os.O_RDONLY, 0644)
 	if err != nil {
-		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
+		log.Printf("[Reader %d] Error: %s\n", config.ID, err)
 		return
 	}
 	defer workFile.Close()
-	//defer os.Remove(workFile.Name())
-
-	if err := workFile.Truncate(config.TotalSize); err != nil {
-		log.Printf("[Writer %d] Error: Unable to truncate file. %s\n", config.ID, err)
-		return
-	}
-
-	if err != nil {
-		log.Printf("[Writer %d] Error: Unable to stat() file. %s\n", config.ID, err)
-	}
+	workFile.Seek(config.StartOffset, 0)
 
 	if Debug {
-		log.Printf("[Writer %d] Starting writer\n", config.ID)
+		log.Printf("[Reader %d] Starting writer\n", config.ID)
 	}
 	startTime := time.Now()
 	for readTotal < config.TotalSize {
@@ -76,6 +68,9 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 				// We might read a partial buffer here, but detecting EOF and
 				// seeking to the beginning is the easiest way to continue reading
 				// while we need more data. This should be extremely rare.
+				if Debug {
+					log.Printf("[Reader %d]: Reached EOF, seeking to 0\n", config.ID)
+				}
 				workFile.Seek(0, 0)
 				continue
 			}
@@ -97,7 +92,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	if Verbose {
 		log.Printf(
-			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
+			"[Reader %d] Read %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
 			config.ID,
 			float64(readTotal)/MiB,
 			workFile.Name(),
@@ -111,9 +106,9 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	var (
 		outFile     *os.File
 		data        []byte
-		bytesNeeded uint64
+		bytesNeeded int64
 		latencies   []time.Duration
-		writeTotal  uint64 = 0
+		writeTotal  int64 = 0
 	)
 
 	readerBufSize := 32 * 1024 * 1024
@@ -133,30 +128,13 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
 
-	if config.WriterPath == "/dev/null" {
-		tmpfile, err := os.OpenFile("/dev/null", os.O_WRONLY, 0644)
-		if err != nil {
-			log.Printf("[Writer %d] Error: %s\n", config.ID, err)
-			return
-		}
-		outFile = tmpfile
-	} else {
-		tmpfile, err := ioutil.TempFile(config.WriterPath, "output*.data")
-		if err != nil {
-			log.Printf("[Writer %d] Error: %s\n", config.ID, err)
-			return
-		}
-		outFile = tmpfile
-		if err := outFile.Truncate(int64(config.OutputSize)); err != nil {
-			log.Printf("[Writer %d] Error: Unable to truncate file. %s\n", config.ID, err)
-			return
-		}
-		outFile.Sync()
+	outFile, err := os.OpenFile(config.WriterPath, os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
+		return
 	}
 	defer outFile.Close()
-	if config.WriterPath != "/dev/null" && !config.Keep {
-		defer os.Remove(outFile.Name())
-	}
+	outFile.Seek(config.StartOffset, 0)
 
 	if Debug {
 		log.Printf("[Writer %d] Starting writer\n", config.ID)
@@ -164,12 +142,12 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	startTime := time.Now()
 	for writeTotal < config.OutputSize {
 		r, err := dr.Read(data)
-		if err != nil || uint64(r) < config.FlushSize {
+		if err != nil || int64(r) < config.FlushSize {
 			return
 		}
 
-		bytesNeeded = uint64(len(data))
-		if config.OutputSize-writeTotal < uint64(len(data)) {
+		bytesNeeded = int64(len(data))
+		if config.OutputSize-writeTotal < int64(len(data)) {
 			bytesNeeded = config.OutputSize - writeTotal
 		}
 
@@ -186,7 +164,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		latencyStop := time.Now().Sub(latencyStart)
 		latencies = append(latencies, latencyStop)
 
-		writeTotal += uint64(n)
+		writeTotal += int64(n)
 	}
 
 	if writeTotal != config.OutputSize {

@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -40,6 +43,82 @@ type statsCollection struct {
 	diskstats []*diskStats
 	semaphore chan bool
 	t         *time.Ticker
+}
+
+type throughput struct {
+	id        int
+	bytes     int64
+	latencies []time.Duration
+	time      time.Duration
+}
+
+type writerResults struct {
+	sync.Mutex
+	d map[string][]*throughput
+}
+
+type ByDuration []time.Duration
+
+func (d ByDuration) Len() int           { return len(d) }
+func (d ByDuration) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
+func (d ByDuration) Less(i, j int) bool { return d[i] < d[j] }
+
+func (t *throughput) Average() time.Duration {
+	var totalTime time.Duration
+
+	for _, value := range t.latencies {
+		totalTime += value
+	}
+
+	return time.Duration(int64(totalTime) / int64(len(t.latencies)))
+}
+
+func (t *throughput) Max() time.Duration {
+	var maxTime time.Duration
+
+	if len(t.latencies) == 0 {
+		return maxTime
+	}
+
+	for _, value := range t.latencies {
+		if value > maxTime {
+			maxTime = value
+		}
+	}
+
+	return maxTime
+}
+
+func (t *throughput) Min() time.Duration {
+	var minTime time.Duration
+
+	if len(t.latencies) == 0 {
+		return minTime
+	}
+
+	minTime = time.Duration(math.MaxInt64)
+	for _, value := range t.latencies {
+		if value < minTime {
+			minTime = value
+		}
+	}
+
+	return minTime
+}
+
+func (t *throughput) Percentile(q float64) time.Duration {
+	tempSlice := make([]time.Duration, len(t.latencies))
+
+	copy(tempSlice, t.latencies)
+	sort.Sort(ByDuration(tempSlice))
+	k := float64(len(tempSlice)-1) * q
+	floor := math.Floor(k)
+	ceiling := math.Ceil(k)
+	if floor == ceiling {
+		return tempSlice[int(k)]
+	}
+
+	return (tempSlice[int(floor)] + tempSlice[int(ceiling)]) / 2
 }
 
 func (s *sysfsDiskStats) csv() string {
