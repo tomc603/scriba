@@ -3,6 +3,7 @@ package main
 import (
 	"io"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -25,10 +26,10 @@ type ReaderConfig struct {
 }
 
 type WriterConfig struct {
-	FlushSize   int64
+	BatchSize   int64
+	BlockSize   int64
 	ID          int
-	Keep        bool
-	OutputSize  int64
+	TotalSize   int64
 	Results     *writerResults
 	StartOffset int64
 	WriterPath  string
@@ -37,31 +38,53 @@ type WriterConfig struct {
 
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
-		workFile  *os.File
-		latencies []time.Duration
-		readTotal int64 = 0
+		bytesToRead int64
+		latencies   []time.Duration
+		readTotal   int64
 	)
 
 	buf := make([]byte, config.BlockSize)
 
 	defer wg.Done()
 
-	workFile, err := os.OpenFile(config.ReaderPath, os.O_RDONLY, 0644)
+	workFile, err := os.OpenFile(config.ReaderPath, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Printf("[Reader %d] Error: %s\n", config.ID, err)
 		return
 	}
 	defer workFile.Close()
-	workFile.Seek(config.StartOffset, 0)
+	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
+		log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, config.StartOffset, err)
+	} else {
+		if Debug {
+			log.Printf("[Reader %d] New offset %s@%d", config.ID, config.ReaderPath, off)
+		}
+	}
 
 	if Debug {
 		log.Printf("[Reader %d] Starting writer\n", config.ID)
 	}
 	startTime := time.Now()
 	for readTotal < config.TotalSize {
+		bytesToRead = config.BlockSize
+		if config.TotalSize-readTotal < bytesToRead {
+			bytesToRead = config.TotalSize - readTotal
+		}
+
 		latencyStart := time.Now()
-		n, err := workFile.Read(buf)
-		latencyStop := time.Now().Sub(latencyStart)
+		switch config.ReaderType {
+		case Random:
+			randPos := rand.Int63n(config.TotalSize - bytesToRead)
+			if _, err := workFile.Seek(randPos, 0); err != nil {
+				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, randPos, err)
+			}
+		case Repeat:
+			if _, err := workFile.Seek(config.StartOffset, 0); err != nil {
+				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, config.StartOffset, err)
+			}
+		}
+
+		n, err := workFile.Read(buf[:bytesToRead])
 		readTotal += int64(n)
 		if err != nil {
 			if err == io.EOF {
@@ -71,14 +94,15 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 				if Debug {
 					log.Printf("[Reader %d]: Reached EOF, seeking to 0\n", config.ID)
 				}
-				workFile.Seek(0, 0)
+				if _, err := workFile.Seek(0, 0); err != nil {
+					log.Printf("[Reader %d]: ERROR Unable to seek to beginning of %s. %s\n", config.ID, config.ReaderPath, err)
+				}
 				continue
 			}
-			log.Printf("[Reader %d] Error: %s\n", config.ID, err)
+			log.Printf("[Reader %d] ERROR: %s\n", config.ID, err)
 			return
 		}
-		// Only include latencies from full transactions so we don't skew data with
-		// partial buffer fills
+		latencyStop := time.Now().Sub(latencyStart)
 		latencies = append(latencies, latencyStop)
 	}
 
@@ -92,7 +116,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	if Verbose {
 		log.Printf(
-			"[Reader %d] Read %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
+			"[Reader %d] Read %0.2f MiB from %s (%0.2f MiB/sec, %0.2f sec.)\n",
 			config.ID,
 			float64(readTotal)/MiB,
 			workFile.Name(),
@@ -104,19 +128,14 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	var (
-		outFile     *os.File
-		data        []byte
 		bytesNeeded int64
+		data        []byte
 		latencies   []time.Duration
-		writeTotal  int64 = 0
+		writeTotal  int64
 	)
 
-	readerBufSize := 32 * 1024 * 1024
-
-	data = make([]byte, config.FlushSize)
-	if config.FlushSize <= 0 {
-		data = make([]byte, readerBufSize)
-	}
+	readerBufSize := 33554432
+	data = make([]byte, config.BlockSize)
 
 	defer wg.Done()
 
@@ -128,51 +147,68 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
 
-	outFile, err := os.OpenFile(config.WriterPath, os.O_WRONLY, 0644)
+	workFile, err := os.OpenFile(config.WriterPath, os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
 		return
 	}
-	defer outFile.Close()
-	outFile.Seek(config.StartOffset, 0)
+	defer workFile.Close()
+	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
+		log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
+	} else {
+		if Debug {
+			log.Printf("[Writer %d] New offset %s@%d", config.ID, config.WriterPath, off)
+		}
+	}
 
 	if Debug {
 		log.Printf("[Writer %d] Starting writer\n", config.ID)
 	}
 	startTime := time.Now()
-	for writeTotal < config.OutputSize {
+	for writeTotal < config.TotalSize {
 		r, err := dr.Read(data)
-		if err != nil || int64(r) < config.FlushSize {
+		if err != nil || int64(r) < config.BlockSize {
 			return
 		}
 
 		bytesNeeded = int64(len(data))
-		if config.OutputSize-writeTotal < int64(len(data)) {
-			bytesNeeded = config.OutputSize - writeTotal
+		if config.TotalSize-writeTotal < int64(len(data)) {
+			bytesNeeded = config.TotalSize - writeTotal
 		}
 
 		latencyStart := time.Now()
-		n, err := outFile.Write(data[:bytesNeeded])
+		switch config.WriterType {
+		case Random:
+			randPos := rand.Int63n(config.TotalSize - config.BlockSize)
+			if _, err := workFile.Seek(randPos, 0); err != nil {
+				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, randPos, err)
+			}
+		case Repeat:
+			if _, err := workFile.Seek(config.StartOffset, 0); err != nil {
+				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
+			}
+		}
+
+		n, err := workFile.Write(data[:bytesNeeded])
 		if err != nil {
-			_ = outFile.Close()
+			_ = workFile.Close()
 			log.Printf("[Writer %d] Error: %s\n", config.ID, err)
 			return
 		}
-		if config.FlushSize > 0 && writeTotal%config.FlushSize == 0 {
-			_ = outFile.Sync()
+		if config.BatchSize > 0 && writeTotal%config.BatchSize == 0 {
+			_ = workFile.Sync()
 		}
 		latencyStop := time.Now().Sub(latencyStart)
 		latencies = append(latencies, latencyStop)
-
 		writeTotal += int64(n)
 	}
 
-	if writeTotal != config.OutputSize {
-		log.Printf("ERROR: Wrote %d bytes, requested %d.\n", writeTotal, config.OutputSize)
+	if writeTotal != config.TotalSize {
+		log.Printf("ERROR: Wrote %d bytes, requested %d.\n", writeTotal, config.TotalSize)
 	}
 
-	_ = outFile.Sync()
-	_ = outFile.Close()
+	_ = workFile.Sync()
+	_ = workFile.Close()
 
 	config.Results.Lock()
 	config.Results.d[config.WriterPath] = append(config.Results.d[config.WriterPath], &throughput{id: config.ID, bytes: writeTotal, latencies: latencies, time: time.Now().Sub(startTime)})
@@ -180,10 +216,10 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 
 	if Verbose {
 		log.Printf(
-			"[Writer %d] Wrote %0.2f to %s (%0.2f/s, %0.2f sec.)\n",
+			"[Writer %d] Wrote %0.2f MiB to %s (%0.2f MiB/sec, %0.2f sec.)\n",
 			config.ID,
 			float64(writeTotal)/MiB,
-			outFile.Name(),
+			workFile.Name(),
 			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
 			time.Now().Sub(startTime).Seconds(),
 		)
