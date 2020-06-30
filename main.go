@@ -9,6 +9,11 @@ import (
 	"runtime"
 	"runtime/pprof"
 	"sync"
+	"time"
+)
+
+const (
+	StatsWriteBatch int = 1000000
 )
 
 var (
@@ -17,29 +22,30 @@ var (
 	VersionBuild string
 	Debug        bool
 	Verbose      bool
-	//ratio_count  uint64
+	//ratio_count   uint64
 )
 
 func main() {
 	var (
-		cpuprofile    string
-		batchSize     int64
-		blockSize     int64
-		fileCount     int
-		ioFiles       []string
-		ioPaths       []string
-		keep          bool
-		recordStats   string
-		recordLatency string
-		readerConfigs []*ReaderConfig
-		readers       int
-		seconds       int
-		size          int64
-		total         int64
-		version       bool
-		wg            sync.WaitGroup
-		writerConfigs []*WriterConfig
-		writers       int
+		cliBatchSize      int64
+		cliBlockSize      int64
+		cliCPUProfilePath string
+		cliFileCount      int
+		cliFileSize       int64
+		cliIOLimit        int64
+		cliRecordStats    string
+		cliRecordLatency  string
+		cliReaders        int
+		cliSeconds        int
+		ioFiles           []string
+		ioPaths           []string
+		ioRunTime         time.Duration
+		keep              bool
+		readerConfigs     []*ReaderConfig
+		version           bool
+		wg                sync.WaitGroup
+		writerConfigs     []*WriterConfig
+		cliWriters        int
 	)
 
 	statsStopper := make(chan bool)
@@ -54,26 +60,26 @@ func main() {
 	flag.Usage = func() {
 		// TODO: If we can't output to Stderr, should we panic()?
 		_, _ = fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-		_, _ = fmt.Fprintf(os.Stderr, "\n\t%s [-batch N] [-block N] [-debug] [-keep] [-latency PATH] [-readers N] [-size N] [-stats PATH] [-verbose] [-version] [-writers N] PATH [PATH...]\n\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stderr, "\n\t%s [OPTIONS] PATH [PATH...]\n\n", os.Args[0])
 		flag.PrintDefaults()
 		_, _ = fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
 	}
 
-	flag.StringVar(&cpuprofile, "cpuprofile", "", "Write a CPU profile to a file")
+	flag.StringVar(&cliCPUProfilePath, "cpuprofile", "", "Write a CPU profile to a file")
 	flag.BoolVar(&Debug, "debug", false, "Output debugging messages")
-	flag.Int64Var(&batchSize, "batch", 104857600, "The amount of data each writer should write before calling Sync")
-	flag.Int64Var(&blockSize, "block", 65536, "The size of each IO operation")
-	flag.IntVar(&fileCount, "files", 1, "The number of files per path")
+	flag.Int64Var(&cliBatchSize, "batch", 104857600, "The amount of data each writer should write before calling Sync")
+	flag.Int64Var(&cliBlockSize, "block", 65536, "The size of each IO operation")
+	flag.IntVar(&cliFileCount, "files", 1, "The number of files per path")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
-	flag.StringVar(&recordLatency, "latency", "", "Track IO latency statistics while testing")
-	flag.StringVar(&recordStats, "stats", "", "Track block device IO statistics while testing")
-	flag.IntVar(&readers, "readers", 0, "The number of reader routines")
-	flag.IntVar(&seconds, "time", 0, "The number of seconds to run IO routines. Overrides total value.")
-	flag.Int64Var(&size, "size", 33554432, "The target file size for each IO routine")
-	flag.Int64Var(&total, "total", 33554432, "The total amount of data to read and write per file")
+	flag.StringVar(&cliRecordLatency, "latency", "", "Save IO latency statistics to the specified path")
+	flag.StringVar(&cliRecordStats, "stats", "", "Save block device IO statistics to the specified path")
+	flag.IntVar(&cliReaders, "readers", 0, "The number of reader routines")
+	flag.IntVar(&cliSeconds, "time", 0, "The number of seconds to run IO routines. Overrides total value")
+	flag.Int64Var(&cliFileSize, "size", 33554432, "The target file size for each IO routine")
+	flag.Int64Var(&cliIOLimit, "total", 33554432, "The total amount of data to read and write per file")
 	flag.BoolVar(&Verbose, "verbose", false, "Output extra running messages")
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
-	flag.IntVar(&writers, "writers", 1, "The number of writer routines")
+	flag.IntVar(&cliWriters, "writers", 1, "The number of writer routines")
 	flag.Parse()
 
 	if Debug {
@@ -81,8 +87,8 @@ func main() {
 		Verbose = true
 	}
 
-	if cpuprofile != "" {
-		cpuProfileFile, err := os.Create(cpuprofile)
+	if cliCPUProfilePath != "" {
+		cpuProfileFile, err := os.Create(cliCPUProfilePath)
 		if err != nil {
 			log.Panic(err)
 		}
@@ -98,6 +104,22 @@ func main() {
 		os.Exit(0)
 	}
 
+	if cliReaders == 0 && cliWriters == 0 {
+		log.Println("ERROR: At least 1 reader or writer must be executed.")
+		os.Exit(1)
+
+	}
+
+	if cliFileSize < 1 {
+		log.Println("ERROR: Invalid file size specified. File sizes must be greater than 0 bytes.")
+		os.Exit(1)
+	}
+
+	if cliIOLimit < 1 && cliSeconds < 1 {
+		log.Println("ERROR: A seconds or total must be greater than 0.")
+		os.Exit(1)
+	}
+
 	if len(flag.Args()) == 0 {
 		_, _ = fmt.Fprintf(os.Stderr, "ERROR: You must specify at least one output path.\n")
 		flag.Usage()
@@ -105,13 +127,22 @@ func main() {
 	}
 	ioPaths = flag.Args()
 
-	if recordStats == "" || runtime.GOOS != "linux" {
+	if cliRecordStats != "" && runtime.GOOS != "linux" {
 		log.Println("WARNING: Recording block IO stats is only supported on Linux. Disabling.")
-		recordStats = ""
+		cliRecordStats = ""
 	}
 
-	if blockSize < 4096 {
+	if cliBlockSize < 4096 {
 		log.Println("WARNING: Block sizes below 4k are probably nonsense to test.")
+	}
+
+	ioRunTime = 0
+	if cliSeconds > 0 {
+		if Debug {
+			log.Println("Enabling timed run, setting IO limit to zero.")
+		}
+		ioRunTime = time.Second * time.Duration(cliSeconds)
+		cliIOLimit = 0
 	}
 
 	log.Println("Creating files")
@@ -119,26 +150,25 @@ func main() {
 		// Add the path to the IO stats collector list
 		stats.Add(DevFromPath(ioPath))
 
-		filePath := ioPath
-		if ioPath != "/dev/null" && ioPath != "/dev/zero" {
-			filePath = path.Join(ioPath, fmt.Sprintf("scriba.%d.data", i))
-
-			log.Printf("Allocating %s\n", filePath)
-			if f, err := os.Create(filePath); err != nil {
-				log.Printf("ERROR: Unable to create %s. %s", filePath, err)
-				os.Exit(2)
-			} else {
-				if err := f.Truncate(size); err != nil {
-					log.Printf("ERROR: Unable to allocate %s. %s", filePath, err)
-					os.Exit(2)
-				}
-				_ = f.Close()
+		for j := 0; j < cliFileCount; j++ {
+			if ioPath == "/dev/null" || ioPath == "/dev/zero" {
+				ioFiles = append(ioFiles, ioPath)
+				continue
 			}
+
+			filePath := path.Join(ioPath, fmt.Sprintf("scriba.path_%d.file_%d.data", i, j))
+			if Verbose {
+				log.Printf("Allocating %s\n", filePath)
+			}
+			if alloc_err := Allocate(filePath, cliFileSize); alloc_err != nil {
+				log.Printf("ERROR: Unable to allocate %s. %s", filePath, alloc_err)
+				os.Exit(2)
+			}
+			ioFiles = append(ioFiles, filePath)
 		}
-		ioFiles = append(ioFiles, filePath)
 	}
 
-	if recordStats != "" {
+	if cliRecordStats != "" {
 		go stats.CollectStats()
 	}
 
@@ -146,16 +176,18 @@ func main() {
 	for _, ioFile := range ioFiles {
 		if ioFile != "/dev/zero" {
 			if Verbose {
-				log.Printf("[%s] Starting %d writers\n", ioFile, writers)
+				log.Printf("[%s] Starting %d writers\n", ioFile, cliWriters)
 			}
 			writerID := 0
-			for i := 0; i < writers; i++ {
+			for i := 0; i < cliWriters; i++ {
 				wc := WriterConfig{
 					ID:          writerID,
-					BatchSize:   batchSize,
-					BlockSize:   blockSize,
-					TotalSize:   size,
-					StartOffset: size / int64(writers) * int64(writerID),
+					BatchSize:   cliBatchSize,
+					BlockSize:   cliBlockSize,
+					FileSize:    cliFileSize,
+					StartOffset: cliFileSize / int64(cliWriters) * int64(writerID),
+					WriteLimit:  cliIOLimit,
+					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
 					WriterType:  Sequential,
 					Results:     writeResults,
@@ -171,18 +203,19 @@ func main() {
 
 		if ioFile != "/dev/null" {
 			if Verbose {
-				log.Printf("[%s] Starting %d readers\n", ioFile, readers)
+				log.Printf("[%s] Starting %d cliReaders\n", ioFile, cliReaders)
 			}
 			readerID := 0
-			for i := 0; i < readers; i++ {
+			for i := 0; i < cliReaders; i++ {
 				rc := ReaderConfig{
 					ID:          readerID,
-					BlockSize:   blockSize,
-					TotalSize:   size,
+					BlockSize:   cliBlockSize,
+					ReadLimit:   cliIOLimit,
+					ReadTime:    ioRunTime,
 					ReaderPath:  ioFile,
 					ReaderType:  Sequential,
 					Results:     readResults,
-					StartOffset: size / int64(readers) * int64(readerID),
+					StartOffset: cliFileSize / int64(cliReaders) * int64(readerID),
 				}
 				readerConfigs = append(readerConfigs, &rc)
 				wg.Add(1)
@@ -254,15 +287,33 @@ func main() {
 
 	// log.Printf("Write iterations: %d\n", ratio_count)
 
-	if recordStats != "" {
+	if cliRecordLatency != "" {
+		if Verbose {
+			log.Println("Saving latency stats")
+		}
+
+		latencyFile, err := os.Open(cliRecordLatency)
+		if err != nil {
+			log.Printf("ERROR: Unable to open block IO stats file %s. %s\n", cliRecordStats, err)
+		}
+		if _, err := latencyFile.WriteString(stats.csv()); err != nil {
+			log.Printf("ERROR: An error occurred writing stats log. %s\n", err)
+		}
+		_ = latencyFile.Sync()
+		if err := latencyFile.Close(); err != nil {
+			log.Printf("ERROR: An error occurred closing the stats log. %s\n", err)
+		}
+	}
+
+	if cliRecordStats != "" {
 		if Verbose {
 			log.Println("Saving block IO stats")
 		}
 		statsStopper <- true
 
-		statsFile, err := os.Open(recordStats)
+		statsFile, err := os.Open(cliRecordStats)
 		if err != nil {
-			log.Printf("ERROR: Unable to open block IO stats file %s. %s\n", recordStats, err)
+			log.Printf("ERROR: Unable to open block IO stats file %s. %s\n", cliRecordStats, err)
 		}
 		if _, err := statsFile.WriteString(stats.csv()); err != nil {
 			log.Printf("ERROR: An error occurred writing stats log. %s\n", err)

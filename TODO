@@ -1,7 +1,7 @@
 TODO: Add token credit system for read/write ratio
  - Atomic increment every read operation
  - When the counter reaches the requested threshold, trigger a write or read operation
-TODO: Add reader routine to add read, read/write load
-TODO: Add timed mode rather than capacity mode
-TODO: Create percentile function for latencies
 TODO: Histogram function for latencies
+TODO: Output latencies to a file rather than the console
+TODO: Confirm file size and max read/write sizes can differ successfully
+TODO: Write latency and block IO stats every StatsWriteBatch iterations
