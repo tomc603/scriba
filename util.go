@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
-	"sort"
+	"log"
+	"os"
+	"strings"
 )
 
 const (
@@ -16,6 +19,62 @@ const (
 	GB = 1e9
 	TB = 1e12
 )
+
+// DevFromPath - Find the longest mountpoint prefixing path and return its matching device
+func DevFromPath(path string) string {
+	var candidate string
+	var device string
+
+	if Debug {
+		log.Printf("Discovering device for path %s\n", path)
+	}
+	mountsFile, err := os.Open("/proc/self/mounts")
+	if err != nil {
+		if Debug {
+			log.Printf("Unable to read mounts file. %s\n", err)
+		}
+		return ""
+	}
+
+	scanner := bufio.NewScanner(mountsFile)
+	scanner.Split(bufio.ScanLines)
+
+	for scanner.Scan() {
+		mountInfo := strings.Fields(scanner.Text())
+		if strings.HasPrefix(path, mountInfo[1]) {
+			if Debug {
+				log.Printf("Matched mountpoint %s, dev %s\n", mountInfo[1], mountInfo[0])
+			}
+
+			if len(mountInfo[1]) > len(candidate) {
+				if Debug {
+					log.Printf("Updating candidate to %s from %s\n", mountInfo[1], candidate)
+				}
+
+				candidate = mountInfo[1]
+				device = mountInfo[0]
+			}
+		}
+	}
+	if closeErr := mountsFile.Close(); closeErr != nil {
+		log.Printf("WARNING: Unable to close /proc/self/mounts. %s\n", closeErr)
+	}
+
+	device = strings.TrimPrefix(device, "/dev/")
+	if strings.HasPrefix(device, "sd") {
+		device = strings.TrimRight(device, "123456789")
+	}
+	if strings.HasPrefix(device, "nvme") {
+		// Strip the partition number off an NVMe device if a partition number exists.
+		index := strings.LastIndex(device, "p")
+		if index > 4 {
+			// Since the first character can't be "p", we check for a higher index
+			device = device[:index]
+		}
+	}
+
+	return device
+}
 
 func humanizeSize(f float64, base2 bool) string {
 
@@ -45,13 +104,4 @@ func humanizeSize(f float64, base2 bool) string {
 
 	// Whether we want base 10 or base 2, bytes are bytes.
 	return fmt.Sprintf("%0.0f bytes", f)
-}
-
-func median(values []float64) float64 {
-	middle := len(values) / 2
-	sort.Float64s(values)
-	if len(values)%2 == 0 {
-		return values[middle-1] + values[middle+1]/2
-	}
-	return values[middle]
 }

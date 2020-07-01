@@ -94,7 +94,7 @@ func TestNewDataReader(t *testing.T) {
 
 func BenchmarkDataReader_Read(b *testing.B) {
 	b.ReportAllocs()
-	data := make([]byte, 65536)
+	data := make([]byte, 64*1024*1024)
 	r := NewDataReader(32 * 1024 * 1024)
 
 	totalCopied := 0
@@ -104,7 +104,7 @@ func BenchmarkDataReader_Read(b *testing.B) {
 		totalCopied += copied
 	}
 	b.Logf(
-		"Copied %d, %0.2f/sec",
+		"Copied %d, %0.2f MiB/sec",
 		totalCopied,
 		float64(totalCopied)/MiB/time.Now().Sub(startTime).Seconds(),
 	)
@@ -143,7 +143,7 @@ func BenchmarkThroughput(b *testing.B) {
 		}
 
 		b.Logf(
-			"Wrote %0.2f (%0.2f/s, %0.2f sec.)\n",
+			"Wrote %0.2f (%0.2f MiB/sec, %0.2f sec.)\n",
 			float64(writeTotal)/MiB,
 			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
 			time.Now().Sub(startTime).Seconds(),
