@@ -15,14 +15,10 @@ const (
 	Repeat
 )
 
-const (
-	FALLOC_FL_ZERO_RANGE = 0x10
-)
-
 type ReaderConfig struct {
 	BlockSize   int64
 	ID          int
-	Results     *writerResults
+	Results     *ioStats
 	ReadLimit   int64
 	ReadTime    time.Duration
 	ReaderPath  string
@@ -35,7 +31,7 @@ type WriterConfig struct {
 	BlockSize   int64
 	FileSize    int64
 	ID          int
-	Results     *writerResults
+	Results     *ioStats
 	StartOffset int64
 	WriteLimit  int64
 	WriteTime   time.Duration
@@ -120,16 +116,20 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			return
 		}
 		latencyStop := time.Now().Sub(latencyStart)
-		latencies = append(latencies, latencyStop)
+		if config.Results != nil {
+			latencies = append(latencies, latencyStop)
+		}
 	}
 
 	if readTotal != config.ReadLimit {
 		log.Printf("ERROR: Read %d bytes, requested %d.\n", readTotal, config.ReadLimit)
 	}
 
-	config.Results.Lock()
-	config.Results.d[config.ReaderPath] = append(config.Results.d[config.ReaderPath], &throughput{id: config.ID, bytes: readTotal, latencies: latencies, time: time.Now().Sub(startTime)})
-	config.Results.Unlock()
+	if config.Results != nil {
+		config.Results.Lock()
+		config.Results.readThroughput[config.ReaderPath] = append(config.Results.readThroughput[config.ReaderPath], &throughput{id: config.ID, bytes: readTotal, latencies: latencies, time: time.Now().Sub(startTime)})
+		config.Results.Unlock()
+	}
 
 	if Verbose {
 		log.Printf(
@@ -238,7 +238,9 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			_ = workFile.Sync()
 		}
 		latencyStop := time.Now().Sub(latencyStart)
-		latencies = append(latencies, latencyStop)
+		if config.Results != nil {
+			latencies = append(latencies, latencyStop)
+		}
 		writeTotal += int64(n)
 		lastPos += int64(n)
 	}
@@ -250,9 +252,11 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	_ = workFile.Sync()
 	_ = workFile.Close()
 
-	config.Results.Lock()
-	config.Results.d[config.WriterPath] = append(config.Results.d[config.WriterPath], &throughput{id: config.ID, bytes: writeTotal, latencies: latencies, time: time.Now().Sub(startTime)})
-	config.Results.Unlock()
+	if config.Results != nil {
+		config.Results.Lock()
+		config.Results.writeThroughput[config.WriterPath] = append(config.Results.writeThroughput[config.WriterPath], &throughput{id: config.ID, bytes: writeTotal, latencies: latencies, time: time.Now().Sub(startTime)})
+		config.Results.Unlock()
+	}
 
 	if Verbose {
 		log.Printf(

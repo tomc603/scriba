@@ -8,22 +8,22 @@ import (
 )
 
 func Allocate(path string, size int64) error {
-	f, open_err := os.Create(path)
-	if open_err != nil {
-		log.Printf("ERROR: Unable to create %s. %s", path, open_err)
-		return open_err
+	f, openErr := os.Create(path)
+	if openErr != nil {
+		log.Printf("ERROR: Unable to create %s. %s", path, openErr)
+		return openErr
 	}
 
-	if alloc_err := f.Truncate(size); alloc_err != nil {
-		log.Printf("Allocate(): ERROR: Unable to Truncate(%d) %s. %s", size, path, alloc_err)
-		return alloc_err
+	if allocErr := f.Truncate(size); allocErr != nil {
+		log.Printf("Allocate(): ERROR: Unable to Truncate(%d) %s. %s", size, path, allocErr)
+		return allocErr
 	}
 
-	if close_err := f.Close(); close_err != nil {
+	if closeErr := f.Close(); closeErr != nil {
 		if Debug {
-			log.Printf("Allocate(): ERROR: Unable to Close() %s. %s\n", path, close_err)
+			log.Printf("Allocate(): ERROR: Unable to Close() %s. %s\n", path, closeErr)
 		}
-		return close_err
+		return closeErr
 	}
 
 	return nil

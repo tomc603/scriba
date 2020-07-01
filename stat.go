@@ -1,12 +1,12 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -38,9 +38,11 @@ type diskStats struct {
 	device string
 }
 
-// TODO: Add stats for CPU and IRQ
-type statsCollection struct {
-	diskstats []*diskStats
+// TODO: Add stats for CPU, memory, and interrupts
+type sysStatsCollection struct {
+	//cpu       []*cpuStats
+	//memory    []*memoryStats
+	disk      []*diskStats
 	semaphore chan bool
 	t         *time.Ticker
 }
@@ -52,9 +54,10 @@ type throughput struct {
 	time      time.Duration
 }
 
-type writerResults struct {
+type ioStats struct {
 	sync.Mutex
-	d map[string][]*throughput
+	readThroughput  map[string][]*throughput
+	writeThroughput map[string][]*throughput
 }
 
 type ByDuration []time.Duration
@@ -121,6 +124,15 @@ func (t *throughput) Percentile(q float64) time.Duration {
 	return (tempSlice[int(floor)] + tempSlice[int(ceiling)]) / 2
 }
 
+func (t *throughput) String() string {
+	return fmt.Sprintf(
+		"%0.2f MiB/sec, Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us",
+		float64(t.bytes)/MiB/t.time.Seconds(), t.Min().Microseconds(), t.Max().Microseconds(),
+		t.Average().Microseconds(), t.Percentile(0.50).Microseconds(),
+		t.Percentile(0.95).Microseconds(), t.Percentile(0.99).Microseconds(),
+	)
+}
+
 func (s *sysfsDiskStats) csv() string {
 	var output string
 
@@ -140,7 +152,7 @@ func (s *sysfsDiskStats) csv() string {
 	output += fmt.Sprintf("%d,", s.ioTime)
 	output += fmt.Sprintf("%d", s.timeInQueue)
 
-	return fmt.Sprint(output)
+	return output
 }
 
 func (s *sysfsDiskStats) String() string {
@@ -165,10 +177,10 @@ func (s *sysfsDiskStats) String() string {
 	return fmt.Sprint(output)
 }
 
-func (s *statsCollection) Add(device string) {
+func (s *sysStatsCollection) Add(device string) {
 	d := diskStats{device: device}
 
-	for _, item := range s.diskstats {
+	for _, item := range s.disk {
 		if item.device == device {
 			if Debug {
 				log.Printf("Device %s already being polled for stats\n", device)
@@ -177,10 +189,10 @@ func (s *statsCollection) Add(device string) {
 		}
 	}
 
-	s.diskstats = append(s.diskstats, &d)
+	s.disk = append(s.disk, &d)
 }
 
-func (s *statsCollection) CollectStats() {
+func (s *sysStatsCollection) CollectStats() {
 	s.t = time.NewTicker(1 * time.Second)
 	for {
 		select {
@@ -188,7 +200,7 @@ func (s *statsCollection) CollectStats() {
 			s.t.Stop()
 			return
 		case <-s.t.C:
-			for _, item := range s.diskstats {
+			for _, item := range s.disk {
 				if Debug {
 					log.Printf("Updating stats for %s\n", item.device)
 				}
@@ -201,23 +213,55 @@ func (s *statsCollection) CollectStats() {
 	}
 }
 
-func (s *statsCollection) csv() string {
+func (s *sysStatsCollection) csv() string {
 	var output string
 
 	output += "\"device\",\"timestamp\",\"read IO\",\"read merges\",\"read sectors\",\"read time\",\"write IO\",\"write merges\",\"write sectors\",\"write time\",\"inflight\",\"IO time\",\"time in queue\"\n"
-	for _, item := range s.diskstats {
+	for _, item := range s.disk {
 		output += fmt.Sprintf("%s\n", item.csv())
 	}
 	return output
 }
 
-func (s *statsCollection) String() string {
+func (s *sysStatsCollection) String() string {
 	var output string
 
-	for _, item := range s.diskstats {
+	for _, item := range s.disk {
 		output += item.csv()
 	}
 	return output
+}
+
+func (s *sysStatsCollection) Write(dir string) error {
+	for _, value := range s.disk {
+		diskStatsFile, diskFileError := os.Open(path.Join(dir, fmt.Sprintf("diskstats.%s.csv", value.device)))
+		if diskFileError != nil {
+			return diskFileError
+		}
+
+		if _, err := diskStatsFile.WriteString("device" +
+			",\"time\",\"reads completed\",\"read merges\",\"read sectors\",\"read time\"" +
+			",\"writes completed\",\"write merges\",\"write sectors\",\"write time\"\n" +
+			",\"in flight\",\"io time\",\"time in queue\""); err != nil {
+			log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
+			return err
+		}
+
+		for _, item := range value.stats {
+			if _, err := diskStatsFile.WriteString(fmt.Sprintf("%s, %s\n", value.device, item.csv())); err != nil {
+				log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
+				return err
+			}
+		}
+
+		_ = diskStatsFile.Sync()
+		if closeErr := diskStatsFile.Close(); closeErr != nil {
+			log.Printf("ERROR: Unable to close disk stats file. %s\n", closeErr)
+			return closeErr
+		}
+	}
+
+	return nil
 }
 
 func (s *diskStats) csv() string {
@@ -306,56 +350,56 @@ func (s *diskStats) UpdateStats() error {
 	return nil
 }
 
-// DevFromPath - Find the longest mountpoint prefixing path and return its matching device
-func DevFromPath(path string) string {
-	var candidate string
-	var device string
-
-	if Debug {
-		log.Printf("Discovering device for path %s\n", path)
+func (s *ioStats) Write(dir string) error {
+	writeStatsFile, writeFileError := os.OpenFile(path.Join(dir, "writers.csv"), os.O_CREATE|os.O_RDWR, 0644)
+	if writeFileError != nil {
+		return writeFileError
 	}
-	mountsFile, err := os.Open("/proc/self/mounts")
-	if err != nil {
-		if Debug {
-			log.Printf("Unable to read mounts file. %s\n", err)
-		}
-		return ""
+
+	if _, err := writeStatsFile.WriteString("\"path\",\"worker id\",\"latency us\"\n"); err != nil {
+		log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
+		return err
 	}
-	defer mountsFile.Close()
-
-	scanner := bufio.NewScanner(mountsFile)
-	scanner.Split(bufio.ScanLines)
-
-	for scanner.Scan() {
-		mountInfo := strings.Fields(scanner.Text())
-		if strings.HasPrefix(path, mountInfo[1]) {
-			if Debug {
-				log.Printf("Matched mountpoint %s, dev %s\n", mountInfo[1], mountInfo[0])
-			}
-
-			if len(mountInfo[1]) > len(candidate) {
-				if Debug {
-					log.Printf("Updating candidate to %s from %s\n", mountInfo[1], candidate)
+	for key, value := range s.writeThroughput {
+		for _, item := range value {
+			for _, latency := range item.latencies {
+				if _, err := writeStatsFile.WriteString(fmt.Sprintf("\"%s\",%d,%d\n", key, item.id, latency.Microseconds())); err != nil {
+					log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
+					return err
 				}
-
-				candidate = mountInfo[1]
-				device = mountInfo[0]
 			}
 		}
 	}
-
-	device = strings.TrimPrefix(device, "/dev/")
-	if strings.HasPrefix(device, "sd") {
-		device = strings.TrimRight(device, "123456789")
+	_ = writeStatsFile.Sync()
+	if closeErr := writeStatsFile.Close(); closeErr != nil {
+		log.Printf("ERROR: Unable to close writer stats file. %s\n", closeErr)
+		return closeErr
 	}
-	if strings.HasPrefix(device, "nvme") {
-		// Strip the partition number off an NVMe device if a partition number exists.
-		index := strings.LastIndex(device, "p")
-		if index > 4 {
-			// Since the first character can't be "p", we check for a higher index
-			device = device[:index]
+
+	readStatsFile, readFileError := os.OpenFile(path.Join(dir, "readers.csv"), os.O_CREATE|os.O_RDWR, 0644)
+	if readFileError != nil {
+		return readFileError
+	}
+
+	if _, err := readStatsFile.WriteString("\"path\",\"worker id\",\"latency us\"\n"); err != nil {
+		log.Printf("ERROR: Unable to write to reader stats file. %s\n", err)
+		return err
+	}
+	for key, value := range s.readThroughput {
+		for _, item := range value {
+			for _, latency := range item.latencies {
+				if _, err := readStatsFile.WriteString(fmt.Sprintf("\"%s\",%d,%d\n", key, item.id, latency.Microseconds())); err != nil {
+					log.Printf("ERROR: Unable to write to reader stats file. %s\n", err)
+					return err
+				}
+			}
 		}
 	}
+	_ = readStatsFile.Sync()
+	if closeErr := readStatsFile.Close(); closeErr != nil {
+		log.Printf("ERROR: Unable to close reader stats file. %s\n", closeErr)
+		return closeErr
+	}
 
-	return device
+	return nil
 }

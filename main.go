@@ -7,18 +7,18 @@ import (
 	"os"
 	"path"
 	"runtime"
-	"runtime/pprof"
 	"sync"
 	"time"
 )
 
-const (
-	StatsWriteBatch int = 1000000
-)
+// TODO: For very long duration tests or extremely fast operations, we should batch write IO latency values
+//const (
+//	StatsWriteBatch int = 1000000
+//)
 
 var (
-	VersionMajor string = "0"
-	VersionMinor string = "10"
+	VersionMajor = "0"
+	VersionMinor = "12"
 	VersionBuild string
 	Debug        bool
 	Verbose      bool
@@ -27,35 +27,29 @@ var (
 
 func main() {
 	var (
-		cliBatchSize      int64
-		cliBlockSize      int64
-		cliCPUProfilePath string
-		cliFileCount      int
-		cliFileSize       int64
-		cliIOLimit        int64
-		cliRecordStats    string
-		cliRecordLatency  string
-		cliReaders        int
-		cliSeconds        int
-		ioFiles           []string
-		ioPaths           []string
-		ioRunTime         time.Duration
-		keep              bool
-		readerConfigs     []*ReaderConfig
-		version           bool
-		wg                sync.WaitGroup
-		writerConfigs     []*WriterConfig
-		cliWriters        int
+		blockStats       sysStatsCollection
+		cliBatchSize     int64
+		cliBlockSize     int64
+		cliFileCount     int
+		cliFileSize      int64
+		cliIOLimit       int64
+		cliRecordStats   string
+		cliRecordLatency string
+		cliReaders       int
+		cliSeconds       int
+		ioFiles          []string
+		ioPaths          []string
+		ioStatsResults   *ioStats
+		ioRunTime        time.Duration
+		keep             bool
+		readerConfigs    []*ReaderConfig
+		version          bool
+		wg               sync.WaitGroup
+		writerConfigs    []*WriterConfig
+		cliWriters       int
 	)
 
 	statsStopper := make(chan bool)
-	stats := statsCollection{semaphore: statsStopper}
-
-	readResults := new(writerResults)
-	readResults.d = make(map[string][]*throughput)
-
-	writeResults := new(writerResults)
-	writeResults.d = make(map[string][]*throughput)
 
 	flag.Usage = func() {
 		// TODO: If we can't output to Stderr, should we panic()?
@@ -65,7 +59,6 @@ func main() {
 		_, _ = fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
 	}
 
-	flag.StringVar(&cliCPUProfilePath, "cpuprofile", "", "Write a CPU profile to a file")
 	flag.BoolVar(&Debug, "debug", false, "Output debugging messages")
 	flag.Int64Var(&cliBatchSize, "batch", 104857600, "The amount of data each writer should write before calling Sync")
 	flag.Int64Var(&cliBlockSize, "block", 65536, "The size of each IO operation")
@@ -85,18 +78,6 @@ func main() {
 	if Debug {
 		// If we've enabled debug output, then we should obviously output verbose messaging too.
 		Verbose = true
-	}
-
-	if cliCPUProfilePath != "" {
-		cpuProfileFile, err := os.Create(cliCPUProfilePath)
-		if err != nil {
-			log.Panic(err)
-		}
-		if err := pprof.StartCPUProfile(cpuProfileFile); err != nil {
-			log.Printf("ERROR: Unable to start CPU profiler. %s\n", err)
-		} else {
-			defer pprof.StopCPUProfile()
-		}
 	}
 
 	if version {
@@ -136,6 +117,39 @@ func main() {
 		log.Println("WARNING: Block sizes below 4k are probably nonsense to test.")
 	}
 
+	if cliRecordStats != "" {
+		if fInfo, fErr := os.Stat(cliRecordStats); os.IsNotExist(fErr) {
+			log.Printf("ERROR: IO stats path %s does not exist.\n", cliRecordStats)
+			os.Exit(1)
+		} else if fErr != nil && !os.IsNotExist(fErr) {
+			log.Printf("ERROR: Unable to access IO stats path %s. %s\n", cliRecordStats, fErr)
+			os.Exit(1)
+		} else if !fInfo.IsDir() {
+			log.Println("ERROR: IO stats path is not a directory.")
+			os.Exit(1)
+		}
+
+		blockStats = sysStatsCollection{semaphore: statsStopper}
+	}
+
+	if cliRecordLatency != "" {
+		if fInfo, fErr := os.Stat(cliRecordLatency); os.IsNotExist(fErr) {
+			log.Printf("ERROR: Latency stats path %s does not exist.\n", cliRecordLatency)
+			os.Exit(1)
+		} else if fErr != nil && !os.IsNotExist(fErr) {
+			log.Printf("ERROR: Unable to access latency stats path %s. %s\n", cliRecordLatency, fErr)
+			os.Exit(1)
+		} else if !fInfo.IsDir() {
+			log.Println("ERROR: Latency stats path is not a directory.")
+			os.Exit(1)
+		}
+
+		log.Println("Setting up latency struct")
+		ioStatsResults = new(ioStats)
+		ioStatsResults.readThroughput = make(map[string][]*throughput)
+		ioStatsResults.writeThroughput = make(map[string][]*throughput)
+	}
+
 	ioRunTime = 0
 	if cliSeconds > 0 {
 		if Debug {
@@ -148,7 +162,9 @@ func main() {
 	log.Println("Creating files")
 	for i, ioPath := range ioPaths {
 		// Add the path to the IO stats collector list
-		stats.Add(DevFromPath(ioPath))
+		if cliRecordStats != "" {
+			blockStats.Add(DevFromPath(ioPath))
+		}
 
 		for j := 0; j < cliFileCount; j++ {
 			if ioPath == "/dev/null" || ioPath == "/dev/zero" {
@@ -160,8 +176,8 @@ func main() {
 			if Verbose {
 				log.Printf("Allocating %s\n", filePath)
 			}
-			if alloc_err := Allocate(filePath, cliFileSize); alloc_err != nil {
-				log.Printf("ERROR: Unable to allocate %s. %s", filePath, alloc_err)
+			if allocErr := Allocate(filePath, cliFileSize); allocErr != nil {
+				log.Printf("ERROR: Unable to allocate %s. %s", filePath, allocErr)
 				os.Exit(2)
 			}
 			ioFiles = append(ioFiles, filePath)
@@ -169,7 +185,7 @@ func main() {
 	}
 
 	if cliRecordStats != "" {
-		go stats.CollectStats()
+		go blockStats.CollectStats()
 	}
 
 	log.Println("Starting io routines")
@@ -190,7 +206,7 @@ func main() {
 					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
 					WriterType:  Sequential,
-					Results:     writeResults,
+					Results:     ioStatsResults,
 				}
 				writerConfigs = append(writerConfigs, &wc)
 				wg.Add(1)
@@ -203,7 +219,7 @@ func main() {
 
 		if ioFile != "/dev/null" {
 			if Verbose {
-				log.Printf("[%s] Starting %d cliReaders\n", ioFile, cliReaders)
+				log.Printf("[%s] Starting %d readers\n", ioFile, cliReaders)
 			}
 			readerID := 0
 			for i := 0; i < cliReaders; i++ {
@@ -214,7 +230,7 @@ func main() {
 					ReadTime:    ioRunTime,
 					ReaderPath:  ioFile,
 					ReaderType:  Sequential,
-					Results:     readResults,
+					Results:     ioStatsResults,
 					StartOffset: cliFileSize / int64(cliReaders) * int64(readerID),
 				}
 				readerConfigs = append(readerConfigs, &rc)
@@ -239,88 +255,51 @@ func main() {
 		}
 	}
 
-	log.Println("Writer Performance")
-	pathWriteThroughput := make(map[string]float64)
-	for key, value := range writeResults.d {
-		for _, item := range value {
-			pathWriteThroughput[key] += float64(item.bytes) / item.time.Seconds()
-			if Verbose {
-				for _, latency := range item.latencies {
-					log.Printf(
-						"%s: [%d]: %d us",
-						key, item.id, latency.Microseconds(),
-					)
-				}
-			}
-			log.Printf(
-				"%s: [%d]: %0.2f MiB/sec, Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us\n",
-				key, item.id, float64(item.bytes)/MiB/item.time.Seconds(), item.Min().Microseconds(), item.Max().Microseconds(),
-				item.Average().Microseconds(), item.Percentile(0.50).Microseconds(),
-				item.Percentile(0.95).Microseconds(), item.Percentile(0.99).Microseconds(),
-			)
-		}
-		log.Printf("%s: %0.2f MiB/sec\n", key, pathWriteThroughput[key]/MiB)
-	}
-
-	log.Println("Reader Performance")
-	pathReadThroughput := make(map[string]float64)
-	for key, value := range readResults.d {
-		for _, item := range value {
-			pathReadThroughput[key] += float64(item.bytes) / item.time.Seconds()
-			if Verbose {
-				for _, latency := range item.latencies {
-					log.Printf(
-						"%s: [%d]: %d us",
-						key, item.id, latency.Microseconds(),
-					)
-				}
-			}
-			log.Printf(
-				"%s: [%d]: %0.2f MiB/sec, Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us\n",
-				key, item.id, float64(item.bytes)/MiB/item.time.Seconds(), item.Min().Microseconds(), item.Max().Microseconds(),
-				item.Average().Microseconds(), item.Percentile(0.50).Microseconds(),
-				item.Percentile(0.95).Microseconds(), item.Percentile(0.99).Microseconds(),
-			)
-		}
-		log.Printf("%s: %0.2f MiB/sec\n", key, pathReadThroughput[key]/MiB)
-	}
-
-	// log.Printf("Write iterations: %d\n", ratio_count)
-
-	if cliRecordLatency != "" {
-		if Verbose {
-			log.Println("Saving latency stats")
-		}
-
-		latencyFile, err := os.Open(cliRecordLatency)
-		if err != nil {
-			log.Printf("ERROR: Unable to open block IO stats file %s. %s\n", cliRecordStats, err)
-		}
-		if _, err := latencyFile.WriteString(stats.csv()); err != nil {
-			log.Printf("ERROR: An error occurred writing stats log. %s\n", err)
-		}
-		_ = latencyFile.Sync()
-		if err := latencyFile.Close(); err != nil {
-			log.Printf("ERROR: An error occurred closing the stats log. %s\n", err)
-		}
-	}
-
 	if cliRecordStats != "" {
 		if Verbose {
 			log.Println("Saving block IO stats")
 		}
 		statsStopper <- true
 
-		statsFile, err := os.Open(cliRecordStats)
-		if err != nil {
-			log.Printf("ERROR: Unable to open block IO stats file %s. %s\n", cliRecordStats, err)
+		if err := blockStats.Write(cliRecordStats); err != nil {
+			log.Printf("ERROR: An error occurred saving block IO stats. %s\n", err)
 		}
-		if _, err := statsFile.WriteString(stats.csv()); err != nil {
-			log.Printf("ERROR: An error occurred writing stats log. %s\n", err)
+	}
+
+	if cliRecordLatency != "" {
+		log.Println("Writer Performance")
+		for key, value := range ioStatsResults.writeThroughput {
+			var runningBytes int64
+			var runningTime time.Duration
+
+			for _, item := range value {
+				runningBytes += item.bytes
+				runningTime += item.time
+				log.Printf("%s: [%d]: %s\n", key, item.id, item.String())
+			}
+			log.Printf("%s: %0.2f MiB/sec\n", key, float64(runningBytes)/MiB/runningTime.Seconds())
 		}
-		_ = statsFile.Sync()
-		if err := statsFile.Close(); err != nil {
-			log.Printf("ERROR: An error occurred closing the stats log. %s\n", err)
+
+		log.Println("Reader Performance")
+		for key, value := range ioStatsResults.readThroughput {
+			var runningBytes int64
+			var runningTime time.Duration
+
+			for _, item := range value {
+				runningBytes += item.bytes
+				runningTime += item.time
+
+				log.Printf("%s: [%d]: %s\n", key, item.id, item.String())
+			}
+			log.Printf("%s: %0.2f MiB/sec\n", key, float64(runningBytes)/MiB/runningTime.Seconds())
+		}
+
+		if Verbose {
+			log.Println("Saving latency stats")
+		}
+
+		if err := ioStatsResults.Write(cliRecordLatency); err != nil {
+			log.Printf("ERROR: Unable to save IO latency stats. %s\n", err)
 		}
 	}
 }
