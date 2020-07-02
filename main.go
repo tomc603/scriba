@@ -259,6 +259,7 @@ func main() {
 				rc := ReaderConfig{
 					ID:          readerID,
 					BlockSize:   cliBlockSize,
+					FileSize:    cliFileSize,
 					ReadLimit:   cliIOLimit,
 					ReadTime:    ioRunTime,
 					ReaderPath:  ioFile,

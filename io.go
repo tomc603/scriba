@@ -17,6 +17,7 @@ const (
 
 type ReaderConfig struct {
 	BlockSize   int64
+	FileSize    int64
 	ID          int
 	Results     *ioStats
 	ReadLimit   int64
@@ -42,7 +43,6 @@ type WriterConfig struct {
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
 		bytesToRead int64
-		fileSize    int64
 		latencies   []time.Duration
 		readTotal   int64
 	)
@@ -57,6 +57,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		return
 	}
 	defer workFile.Close()
+
 	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
 		log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, config.StartOffset, err)
 	} else {
@@ -87,7 +88,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		latencyStart := time.Now()
 		switch config.ReaderType {
 		case Random:
-			randPos := rand.Int63n(fileSize - bytesToRead)
+			randPos := rand.Int63n(config.FileSize - bytesToRead)
 			if _, err := workFile.Seek(randPos, 0); err != nil {
 				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, randPos, err)
 			}
