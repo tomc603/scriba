@@ -241,8 +241,8 @@ func (s *sysStatsCollection) Write(dir string) error {
 
 		if _, err := diskStatsFile.WriteString("device" +
 			",\"time\",\"reads completed\",\"read merges\",\"read sectors\",\"read time\"" +
-			",\"writes completed\",\"write merges\",\"write sectors\",\"write time\"\n" +
-			",\"in flight\",\"io time\",\"time in queue\""); err != nil {
+			",\"writes completed\",\"write merges\",\"write sectors\",\"write time\"" +
+			",\"in flight\",\"io time\",\"time in queue\"\n"); err != nil {
 			log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
 			return err
 		}
