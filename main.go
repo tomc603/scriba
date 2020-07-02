@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"path"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -18,17 +20,28 @@ import (
 //)
 
 var (
-	VersionMajor = "0"
-	VersionMinor = "12"
-	VersionBuild string
 	Debug        bool
+	Stop         bool
 	Verbose      bool
+	VersionBuild string
+	VersionMajor = "0"
+	VersionMinor = "13"
 	//ratio_count   uint64
 )
 
+func setupSignalHandler() {
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Println("Received CTRL+C. Stopping routines.")
+		Stop = true
+	}()
+}
+
 func main() {
 	var (
-		blockStats       sysStatsCollection
+		blockStats       SysStatsCollection
 		cliBatchSize     int64
 		cliBlockSize     int64
 		cliFileCount     int
@@ -43,7 +56,7 @@ func main() {
 		cliWriters       int
 		ioFiles          []string
 		ioPaths          []string
-		ioStatsResults   *ioStats
+		ioStatsResults   *IOStats
 		ioRunTime        time.Duration
 		keep             bool
 		readerConfigs    []*ReaderConfig
@@ -162,7 +175,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		blockStats = sysStatsCollection{semaphore: statsStopper}
+		blockStats = SysStatsCollection{Semaphore: statsStopper}
 	}
 
 	if cliRecordLatency != "" {
@@ -178,9 +191,9 @@ func main() {
 		}
 
 		log.Println("Setting up latency struct")
-		ioStatsResults = new(ioStats)
-		ioStatsResults.readThroughput = make(map[string][]*throughput)
-		ioStatsResults.writeThroughput = make(map[string][]*throughput)
+		ioStatsResults = new(IOStats)
+		ioStatsResults.ReadThroughput = make(map[string][]*Throughput)
+		ioStatsResults.WriteThroughput = make(map[string][]*Throughput)
 	}
 
 	ioRunTime = 0
@@ -192,8 +205,14 @@ func main() {
 		cliIOLimit = 0
 	}
 
+	// Wait for CTRL+C in the background
+	setupSignalHandler()
+
 	log.Println("Creating files")
 	for i, ioPath := range ioPaths {
+		if Stop {
+			os.Exit(0)
+		}
 		// Add the path to the IO stats collector list
 		if cliRecordStats != "" {
 			blockStats.Add(DevFromPath(ioPath))
@@ -279,6 +298,9 @@ func main() {
 	wg.Wait()
 
 	if !keep {
+		if Verbose {
+			log.Println("Cleaning up test files.")
+		}
 		for _, ioFile := range ioFiles {
 			if ioFile == "/dev/null" || ioFile == "/dev/zero" {
 				continue
@@ -302,30 +324,25 @@ func main() {
 
 	if cliRecordLatency != "" && ioStatsResults != nil {
 		log.Println("Writer Performance")
-		for key, value := range ioStatsResults.writeThroughput {
-			var runningBytes int64
-			var runningTime time.Duration
+		for key, value := range ioStatsResults.WriteThroughput {
+			var totalThroughput float64
 
 			for _, item := range value {
-				runningBytes += item.bytes
-				runningTime += item.time
-				log.Printf("%s: [%d]: %s\n", key, item.id, item.String())
+				totalThroughput += float64(item.Bytes) / item.Time.Seconds()
+				log.Printf("%s: [%d]: %s\n", key, item.ID, item.String())
 			}
-			log.Printf("%s: %0.2f MiB/sec\n", key, float64(runningBytes)/MiB/runningTime.Seconds())
+			log.Printf("%s: [Total] %0.2f MiB/sec\n", key, totalThroughput/MiB)
 		}
 
 		log.Println("Reader Performance")
-		for key, value := range ioStatsResults.readThroughput {
-			var runningBytes int64
-			var runningTime time.Duration
+		for key, value := range ioStatsResults.ReadThroughput {
+			var totalThroughput float64
 
 			for _, item := range value {
-				runningBytes += item.bytes
-				runningTime += item.time
-
-				log.Printf("%s: [%d]: %s\n", key, item.id, item.String())
+				totalThroughput += float64(item.Bytes) / item.Time.Seconds()
+				log.Printf("%s: [%d]: %s\n", key, item.ID, item.String())
 			}
-			log.Printf("%s: %0.2f MiB/sec\n", key, float64(runningBytes)/MiB/runningTime.Seconds())
+			log.Printf("%s: [Total] %0.2f MiB/sec\n", key, totalThroughput/MiB)
 		}
 
 		if Verbose {

@@ -19,7 +19,7 @@ type ReaderConfig struct {
 	BlockSize   int64
 	FileSize    int64
 	ID          int
-	Results     *ioStats
+	Results     *IOStats
 	ReadLimit   int64
 	ReadTime    time.Duration
 	ReaderPath  string
@@ -32,7 +32,7 @@ type WriterConfig struct {
 	BlockSize   int64
 	FileSize    int64
 	ID          int
-	Results     *ioStats
+	Results     *IOStats
 	StartOffset int64
 	WriteLimit  int64
 	WriteTime   time.Duration
@@ -72,6 +72,10 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	startTime := time.Now()
 	for {
+		if Stop {
+			// The user has interrupted us, so stop reading and return normally.
+			break
+		}
 		if config.ReadLimit > 0 && readTotal >= config.ReadLimit {
 			// A data limit has been specified and we've reached or exceeded it.
 			break
@@ -122,13 +126,9 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		}
 	}
 
-	if readTotal != config.ReadLimit {
-		log.Printf("ERROR: Read %d bytes, requested %d.\n", readTotal, config.ReadLimit)
-	}
-
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.readThroughput[config.ReaderPath] = append(config.Results.readThroughput[config.ReaderPath], &throughput{id: config.ID, bytes: readTotal, latencies: latencies, time: time.Now().Sub(startTime)})
+		config.Results.ReadThroughput[config.ReaderPath] = append(config.Results.ReadThroughput[config.ReaderPath], &Throughput{ID: config.ID, Bytes: readTotal, Latencies: latencies, Time: time.Now().Sub(startTime)})
 		config.Results.Unlock()
 	}
 
@@ -186,6 +186,10 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	}
 	startTime := time.Now()
 	for {
+		if Stop {
+			// The user has interrupted us, so stop writing and return normally.
+			break
+		}
 		if config.WriteLimit > 0 && writeTotal >= config.WriteLimit {
 			// A size limit has been specified, and we've reached or exceeded that limit.
 			break
@@ -246,16 +250,12 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		lastPos += int64(n)
 	}
 
-	if config.WriteLimit > 0 && writeTotal != config.WriteLimit {
-		log.Printf("ERROR: Wrote %d bytes, requested %d.\n", writeTotal, config.WriteLimit)
-	}
-
 	_ = workFile.Sync()
 	_ = workFile.Close()
 
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.writeThroughput[config.WriterPath] = append(config.Results.writeThroughput[config.WriterPath], &throughput{id: config.ID, bytes: writeTotal, latencies: latencies, time: time.Now().Sub(startTime)})
+		config.Results.WriteThroughput[config.WriterPath] = append(config.Results.WriteThroughput[config.WriterPath], &Throughput{ID: config.ID, Bytes: writeTotal, Latencies: latencies, Time: time.Now().Sub(startTime)})
 		config.Results.Unlock()
 	}
 
