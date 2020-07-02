@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,18 +36,22 @@ func main() {
 		cliIOLimit       int64
 		cliRecordStats   string
 		cliRecordLatency string
+		cliReadPattern   string
 		cliReaders       int
 		cliSeconds       int
+		cliWritePattern  string
+		cliWriters       int
 		ioFiles          []string
 		ioPaths          []string
 		ioStatsResults   *ioStats
 		ioRunTime        time.Duration
 		keep             bool
 		readerConfigs    []*ReaderConfig
+		readPattern      uint8
 		version          bool
 		wg               sync.WaitGroup
 		writerConfigs    []*WriterConfig
-		cliWriters       int
+		writePattern     uint8
 	)
 
 	statsStopper := make(chan bool)
@@ -66,12 +71,14 @@ func main() {
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.StringVar(&cliRecordLatency, "latency", "", "Save IO latency statistics to the specified path")
 	flag.StringVar(&cliRecordStats, "stats", "", "Save block device IO statistics to the specified path")
+	flag.StringVar(&cliReadPattern, "rpattern", "sequential", "The IO pattern for reader routines")
 	flag.IntVar(&cliReaders, "readers", 0, "The number of reader routines")
 	flag.IntVar(&cliSeconds, "time", 0, "The number of seconds to run IO routines. Overrides total value")
 	flag.Int64Var(&cliFileSize, "size", 33554432, "The target file size for each IO routine")
 	flag.Int64Var(&cliIOLimit, "total", 33554432, "The total amount of data to read and write per file")
 	flag.BoolVar(&Verbose, "verbose", false, "Output extra running messages")
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
+	flag.StringVar(&cliWritePattern, "wpattern", "sequential", "The IO pattern for writer routines")
 	flag.IntVar(&cliWriters, "writers", 1, "The number of writer routines")
 	flag.Parse()
 
@@ -107,6 +114,32 @@ func main() {
 		os.Exit(1)
 	}
 	ioPaths = flag.Args()
+
+	cliReadPattern = strings.ToLower(cliReadPattern)
+	switch cliReadPattern {
+	case "random":
+		readPattern = Random
+	case "sequential":
+		readPattern = Sequential
+	case "repeat":
+		readPattern = Repeat
+	default:
+		log.Printf("ERROR: Read pattern must be random, repeat, or sequential. %s is invalid.\n", cliReadPattern)
+		os.Exit(1)
+	}
+
+	cliWritePattern = strings.ToLower(cliWritePattern)
+	switch cliWritePattern {
+	case "random":
+		writePattern = Random
+	case "sequential":
+		writePattern = Sequential
+	case "repeat":
+		writePattern = Repeat
+	default:
+		log.Printf("ERROR: Read pattern must be random, repeat, or sequential. %s is invalid.\n", cliWritePattern)
+		os.Exit(1)
+	}
 
 	if cliRecordStats != "" && runtime.GOOS != "linux" {
 		log.Println("WARNING: Recording block IO stats is only supported on Linux. Disabling.")
@@ -205,7 +238,7 @@ func main() {
 					WriteLimit:  cliIOLimit,
 					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
-					WriterType:  Sequential,
+					WriterType:  writePattern,
 					Results:     ioStatsResults,
 				}
 				writerConfigs = append(writerConfigs, &wc)
@@ -229,7 +262,7 @@ func main() {
 					ReadLimit:   cliIOLimit,
 					ReadTime:    ioRunTime,
 					ReaderPath:  ioFile,
-					ReaderType:  Sequential,
+					ReaderType:  readPattern,
 					Results:     ioStatsResults,
 					StartOffset: cliFileSize / int64(cliReaders) * int64(readerID),
 				}

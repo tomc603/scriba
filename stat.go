@@ -234,7 +234,7 @@ func (s *sysStatsCollection) String() string {
 
 func (s *sysStatsCollection) Write(dir string) error {
 	for _, value := range s.disk {
-		diskStatsFile, diskFileError := os.Open(path.Join(dir, fmt.Sprintf("diskstats.%s.csv", value.device)))
+		diskStatsFile, diskFileError := os.OpenFile(path.Join(dir, fmt.Sprintf("diskstats.%s.csv", value.device)), os.O_CREATE|os.O_RDWR, 0644)
 		if diskFileError != nil {
 			return diskFileError
 		}
