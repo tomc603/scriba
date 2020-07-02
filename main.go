@@ -266,7 +266,7 @@ func main() {
 		}
 	}
 
-	if cliRecordLatency != "" {
+	if cliRecordLatency != "" && ioStatsResults != nil {
 		log.Println("Writer Performance")
 		for key, value := range ioStatsResults.writeThroughput {
 			var runningBytes int64
@@ -297,7 +297,6 @@ func main() {
 		if Verbose {
 			log.Println("Saving latency stats")
 		}
-
 		if err := ioStatsResults.Write(cliRecordLatency); err != nil {
 			log.Printf("ERROR: Unable to save IO latency stats. %s\n", err)
 		}
