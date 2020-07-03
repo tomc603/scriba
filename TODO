@@ -1,12 +1,9 @@
 TODO: Confirm file size and max read/write sizes can differ successfully
 TODO: Write latency stats every StatsWriteBatch iterations
-
-Wishlist: Histogram function for latencies
-Wishlist: Add token credit system for read/write ratio
- - Atomic increment every read operation
- - When the counter reaches the requested threshold, trigger a write or read operation
+TODO: Histogram function for latencies
 
 panic: runtime error: index out of range [0] with length 0
 /Users/tcameron/Development/github.com/tomc603/scriba/stat.go:376 +0xee
 /Users/tcameron/Development/github.com/tomc603/scriba/stat.go:402 +0x4c
 /Users/tcameron/Development/github.com/tomc603/scriba/main.go:332 +0x1da4
+
