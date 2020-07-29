@@ -23,9 +23,10 @@ var (
 	Debug        bool
 	Stop         bool
 	Verbose      bool
-	VersionBuild string
-	VersionMajor = "0"
-	VersionMinor = "13"
+	VersionBuild string = "invalid"
+	VersionMajor string = "0"
+	VersionMinor string = "13"
+	BuildDate    string = "invalid"
 	//ratio_count   uint64
 )
 
@@ -101,7 +102,7 @@ func main() {
 	}
 
 	if version {
-		fmt.Printf("%s version %s.%s.%s\n", os.Args[0], VersionMajor, VersionMinor, VersionBuild)
+		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Date: %s\n", os.Args[0], VersionMajor, VersionMinor, VersionBuild, BuildDate)
 		os.Exit(0)
 	}
 
