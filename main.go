@@ -72,8 +72,8 @@ func main() {
 
 	flag.Usage = func() {
 		// TODO: If we can't output to Stderr, should we panic()?
-		_, _ = fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-		_, _ = fmt.Fprintf(os.Stderr, "\n\t%s [OPTIONS] PATH [PATH...]\n\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stderr, "Usage of %s:\n", path.Base(os.Args[0]))
+		_, _ = fmt.Fprintf(os.Stderr, "\n\t%s [OPTIONS] PATH [PATH...]\n\n", path.Base(os.Args[0]))
 		flag.PrintDefaults()
 		_, _ = fmt.Fprintln(os.Stderr, "  PATH [PATH...]\n\tOne or more output paths for writers.")
 	}
@@ -102,7 +102,7 @@ func main() {
 	}
 
 	if version {
-		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Date: %s\n", os.Args[0], VersionMajor, VersionMinor, VersionBuild, BuildDate)
+		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Date: %s\n", path.Base(os.Args[0]), VersionMajor, VersionMinor, VersionBuild, BuildDate)
 		os.Exit(0)
 	}
 
