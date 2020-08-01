@@ -54,16 +54,15 @@ type SysStatsCollection struct {
 }
 
 type Throughput struct {
-	Bytes     int64
-	ID        int
-	Latencies []time.Duration
-	Time      time.Duration
+	Bytes           int64
+	ID              int
+	Latencies       []time.Duration
+	sortedLatencies []time.Duration
+	Time            time.Duration
 }
 
 type byDuration []time.Duration
 type byThroughputID []*Throughput
-
-var sortedLatencies []time.Duration
 
 func (d byDuration) Len() int           { return len(d) }
 func (d byDuration) Swap(i, j int)      { d[i], d[j] = d[j], d[i] }
@@ -364,7 +363,7 @@ func (t *Throughput) Max() time.Duration {
 	}
 
 	t.Sort()
-	return sortedLatencies[len(sortedLatencies)]
+	return t.sortedLatencies[len(t.sortedLatencies)-1]
 }
 
 func (t *Throughput) Min() time.Duration {
@@ -373,26 +372,27 @@ func (t *Throughput) Min() time.Duration {
 	}
 
 	t.Sort()
-	return sortedLatencies[0]
+	return t.sortedLatencies[0]
 }
 
 func (t *Throughput) Percentile(q float64) time.Duration {
 	t.Sort()
 
-	k := float64(len(sortedLatencies)-1) * q
+	k := float64(len(t.sortedLatencies)-1) * q
 	floor := math.Floor(k)
 	ceiling := math.Ceil(k)
 	if floor == ceiling {
-		return sortedLatencies[int(k)]
+		return t.sortedLatencies[int(k)]
 	}
 
-	return (sortedLatencies[int(floor)] + sortedLatencies[int(ceiling)]) / 2
+	return (t.sortedLatencies[int(floor)] + t.sortedLatencies[int(ceiling)]) / 2
 }
 
 func (t *Throughput) Sort() {
-	if len(sortedLatencies) != len(t.Latencies) {
-		copy(sortedLatencies, t.Latencies)
-		sort.Sort(byDuration(sortedLatencies))
+	if len(t.sortedLatencies) != len(t.Latencies) {
+		t.sortedLatencies = make([]time.Duration, len(t.Latencies))
+		copy(t.sortedLatencies, t.Latencies)
+		sort.Sort(byDuration(t.sortedLatencies))
 	}
 }
 
