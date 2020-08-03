@@ -159,6 +159,7 @@ func (s *diskStats) UpdateStats() error {
 }
 
 func (s *IOStats) Write(dir string) error {
+	//TODO: Output a timestamp or row count when writing latency data
 	writeStatsFile, writeFileError := os.OpenFile(path.Join(dir, "writers.csv"), os.O_CREATE|os.O_RDWR, 0644)
 	if writeFileError != nil {
 		return writeFileError
@@ -331,7 +332,7 @@ func (s *SysStatsCollection) Write(dir string) error {
 		}
 
 		for _, item := range value.Stats {
-			if _, err := diskStatsFile.WriteString(fmt.Sprintf("%s, %s\n", value.Device, item.Csv())); err != nil {
+			if _, err := diskStatsFile.WriteString(fmt.Sprintf("%s,%s\n", value.Device, item.Csv())); err != nil {
 				log.Printf("ERROR: Unable to write to writer stats file. %s\n", err)
 				return err
 			}
