@@ -42,9 +42,11 @@ type WriterConfig struct {
 
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
-		bytesToRead int64
-		latencies   []time.Duration
-		readTotal   int64
+		bytesToRead  int64
+		latencies    []time.Duration
+		readTotal    int64
+		seek         bool
+		seekPosition int64
 	)
 
 	buf := make([]byte, config.BlockSize)
@@ -72,6 +74,8 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	startTime := time.Now()
 	for {
+		seek = false
+
 		if Stop {
 			// The user has interrupted us, so stop reading and return normally.
 			break
@@ -91,19 +95,23 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			bytesToRead = config.ReadLimit - readTotal
 		}
 
-		latencyStart := time.Now()
+		// If we aren't performing sequential I/O, calculate the position to seek for the next operation
 		switch config.ReaderType {
 		case Random:
-			randPos := rand.Int63n(config.FileSize - bytesToRead)
-			if _, err := workFile.Seek(randPos, 0); err != nil {
-				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, randPos, err)
-			}
+			seekPosition = rand.Int63n(config.FileSize - bytesToRead)
+			seek = true
 		case Repeat:
-			if _, err := workFile.Seek(config.StartOffset, 0); err != nil {
-				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, config.StartOffset, err)
-			}
+			seekPosition = config.StartOffset
+			seek = true
 		}
 
+		// Don't count the position calculation in the latency math
+		latencyStart := time.Now()
+		if seek {
+			if _, err := workFile.Seek(seekPosition, 0); err != nil {
+				log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, seekPosition, err)
+			}
+		}
 		n, err := workFile.Read(buf[:bytesToRead])
 		readTotal += int64(n)
 		if err != nil {
@@ -148,11 +156,13 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	var (
-		bytesNeeded int64
-		data        []byte
-		lastPos     int64
-		latencies   []time.Duration
-		writeTotal  int64
+		bytesNeeded  int64
+		data         []byte
+		lastPos      int64
+		latencies    []time.Duration
+		seek         bool
+		seekPosition int64
+		writeTotal   int64
 	)
 
 	readerBufSize := 33554432
@@ -188,6 +198,8 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	}
 	startTime := time.Now()
 	for {
+		seek = false
+
 		if Stop {
 			// The user has interrupted us, so stop writing and return normally.
 			break
@@ -212,28 +224,30 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			bytesNeeded = config.WriteLimit - writeTotal
 		}
 
-		latencyStart := time.Now()
 		switch config.WriterType {
 		case Random:
-			randPos := rand.Int63n(config.FileSize - config.BlockSize)
-			if _, err := workFile.Seek(randPos, 0); err != nil {
-				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, randPos, err)
-			}
+			seekPosition = rand.Int63n(config.FileSize - config.BlockSize)
+			seek = true
 		case Repeat:
-			if _, err := workFile.Seek(config.StartOffset, 0); err != nil {
-				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
-			}
+			seekPosition = config.StartOffset
+			seek = true
 		default:
 			if lastPos+bytesNeeded > config.FileSize {
 				if Debug {
 					log.Printf("[Writer %d] %s EOF, seeking to 0", config.ID, config.WriterPath)
 				}
+				seekPosition = 0
+				seek = true
+			}
+		}
 
-				if seekPos, err := workFile.Seek(0, 0); err != nil {
-					log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, 0, err)
-				} else {
-					lastPos = seekPos
-				}
+		// Don't count the position calculation in the latency math
+		latencyStart := time.Now()
+		if seek {
+			if seekPos, err := workFile.Seek(seekPosition, 0); err != nil {
+				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, seekPosition, err)
+			} else {
+				lastPos = seekPos
 			}
 		}
 
