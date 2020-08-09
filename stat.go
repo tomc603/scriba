@@ -46,19 +46,17 @@ type sysfsDiskStats struct {
 
 // TODO: Add stats for CPU, memory, and interrupts
 type SysStatsCollection struct {
-	//CPU       []*cpuStats
-	Disk []*diskStats
-	//Memory    []*memoryStats
+	//CPU     []*cpuStats
+	//Memory  []*memoryStats
+	Disk      []*diskStats
 	Semaphore chan bool
 	t         *time.Ticker
 }
 
 type Throughput struct {
-	Bytes           int64
 	ID              int
 	Latencies       []time.Duration
 	sortedLatencies []time.Duration
-	Time            time.Duration
 }
 
 type byDuration []time.Duration
@@ -399,8 +397,8 @@ func (t *Throughput) Sort() {
 
 func (t *Throughput) String() string {
 	return fmt.Sprintf(
-		"%0.2f MiB/sec, Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us",
-		float64(t.Bytes)/MiB/t.Time.Seconds(), t.Min().Microseconds(), t.Max().Microseconds(),
+		"Min: %d us, Max: %d us, Avg: %d us, P50: %d us, P95: %d us, P99: %d us",
+		t.Min().Microseconds(), t.Max().Microseconds(),
 		t.Average().Microseconds(), t.Percentile(0.50).Microseconds(),
 		t.Percentile(0.95).Microseconds(), t.Percentile(0.99).Microseconds(),
 	)

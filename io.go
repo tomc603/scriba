@@ -170,7 +170,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.ReadThroughput[config.ReaderPath] = append(config.Results.ReadThroughput[config.ReaderPath], &Throughput{ID: config.ID, Bytes: config.ThroughputBytes, Latencies: latencies, Time: config.ThroughputTime})
+		config.Results.ReadThroughput[config.ReaderPath] = append(config.Results.ReadThroughput[config.ReaderPath], &Throughput{ID: config.ID, Latencies: latencies})
 		config.Results.Unlock()
 	}
 
@@ -305,7 +305,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.WriteThroughput[config.WriterPath] = append(config.Results.WriteThroughput[config.WriterPath], &Throughput{ID: config.ID, Bytes: config.ThroughputBytes, Latencies: latencies, Time: config.ThroughputTime})
+		config.Results.WriteThroughput[config.WriterPath] = append(config.Results.WriteThroughput[config.WriterPath], &Throughput{ID: config.ID, Latencies: latencies})
 		config.Results.Unlock()
 	}
 
@@ -376,5 +376,4 @@ func prefill(filePath string, fileSize int64, wg *sync.WaitGroup) {
 	}
 
 	_ = workFile.Sync()
-	_ = workFile.Close()
 }
