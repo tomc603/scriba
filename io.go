@@ -17,28 +17,32 @@ const (
 )
 
 type ReaderConfig struct {
-	BlockSize   int64
-	FileSize    int64
-	ID          int
-	Results     *IOStats
-	ReadLimit   int64
-	ReadTime    time.Duration
-	ReaderPath  string
-	ReaderType  uint8
-	StartOffset int64
+	BlockSize       int64
+	FileSize        int64
+	ID              int
+	Results         *IOStats
+	ReadLimit       int64
+	ReadTime        time.Duration
+	ReaderPath      string
+	ReaderType      uint8
+	StartOffset     int64
+	ThroughputBytes int64
+	ThroughputTime  time.Duration
 }
 
 type WriterConfig struct {
-	BatchSize   int64
-	BlockSize   int64
-	FileSize    int64
-	ID          int
-	Results     *IOStats
-	StartOffset int64
-	WriteLimit  int64
-	WriteTime   time.Duration
-	WriterPath  string
-	WriterType  uint8
+	BatchSize       int64
+	BlockSize       int64
+	FileSize        int64
+	ID              int
+	Results         *IOStats
+	StartOffset     int64
+	ThroughputBytes int64
+	ThroughputTime  time.Duration
+	WriteLimit      int64
+	WriteTime       time.Duration
+	WriterPath      string
+	WriterType      uint8
 }
 
 func dropPageCache() {
@@ -72,7 +76,6 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
 		bytesToRead  int64
 		latencies    []time.Duration
-		readTotal    int64
 		seek         bool
 		seekPosition int64
 	)
@@ -108,7 +111,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			// The user has interrupted us, so stop reading and return normally.
 			break
 		}
-		if config.ReadLimit > 0 && readTotal >= config.ReadLimit {
+		if config.ReadLimit > 0 && config.ThroughputBytes >= config.ReadLimit {
 			// A data limit has been specified and we've reached or exceeded it.
 			log.Printf("[Reader %d]: Data limit has elapsed. Stopping reader routine.\n", config.ID)
 			break
@@ -119,8 +122,8 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			break
 		}
 		bytesToRead = config.BlockSize
-		if config.ReadLimit > 0 && config.ReadLimit-readTotal < bytesToRead {
-			bytesToRead = config.ReadLimit - readTotal
+		if config.ReadLimit > 0 && config.ReadLimit-config.ThroughputBytes < bytesToRead {
+			bytesToRead = config.ReadLimit - config.ThroughputBytes
 		}
 
 		// If we aren't performing sequential I/O, calculate the position to seek for the next operation
@@ -141,7 +144,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			}
 		}
 		n, err := workFile.Read(buf[:bytesToRead])
-		readTotal += int64(n)
+		config.ThroughputBytes += int64(n)
 		if err != nil {
 			if err == io.EOF {
 				// We might read a partial buffer here, but detecting EOF and
@@ -163,10 +166,11 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			latencies = append(latencies, latencyStop)
 		}
 	}
+	config.ThroughputTime = time.Now().Sub(startTime)
 
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.ReadThroughput[config.ReaderPath] = append(config.Results.ReadThroughput[config.ReaderPath], &Throughput{ID: config.ID, Bytes: readTotal, Latencies: latencies, Time: time.Now().Sub(startTime)})
+		config.Results.ReadThroughput[config.ReaderPath] = append(config.Results.ReadThroughput[config.ReaderPath], &Throughput{ID: config.ID, Bytes: config.ThroughputBytes, Latencies: latencies, Time: config.ThroughputTime})
 		config.Results.Unlock()
 	}
 
@@ -174,10 +178,10 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		log.Printf(
 			"[Reader %d] Read %0.2f MiB from %s (%0.2f MiB/sec, %0.2f sec.)\n",
 			config.ID,
-			float64(readTotal)/MiB,
+			float64(config.ThroughputBytes)/MiB,
 			workFile.Name(),
-			float64(readTotal)/MiB/time.Now().Sub(startTime).Seconds(),
-			time.Now().Sub(startTime).Seconds(),
+			float64(config.ThroughputBytes)/MiB/config.ThroughputTime.Seconds(),
+			config.ThroughputTime.Seconds(),
 		)
 	}
 }
@@ -190,7 +194,6 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		latencies    []time.Duration
 		seek         bool
 		seekPosition int64
-		writeTotal   int64
 	)
 
 	readerBufSize := 33554432
@@ -212,6 +215,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		return
 	}
 	defer workFile.Close()
+
 	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
 		log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
 	} else {
@@ -232,7 +236,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			// The user has interrupted us, so stop writing and return normally.
 			break
 		}
-		if config.WriteLimit > 0 && writeTotal >= config.WriteLimit {
+		if config.WriteLimit > 0 && config.ThroughputBytes >= config.WriteLimit {
 			// A size limit has been specified, and we've reached or exceeded that limit.
 			log.Printf("[Writer %d]: Data limit has elapsed. Stopping writer routine.\n", config.ID)
 			break
@@ -248,8 +252,8 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		}
 
 		bytesNeeded = int64(len(data))
-		if config.WriteLimit > 0 && config.WriteLimit-writeTotal < int64(len(data)) {
-			bytesNeeded = config.WriteLimit - writeTotal
+		if config.WriteLimit > 0 && config.WriteLimit-config.ThroughputBytes < int64(len(data)) {
+			bytesNeeded = config.WriteLimit - config.ThroughputBytes
 		}
 
 		switch config.WriterType {
@@ -285,23 +289,23 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			log.Printf("[Writer %d] Error: %s\n", config.ID, err)
 			return
 		}
-		if config.BatchSize > 0 && writeTotal%config.BatchSize == 0 {
+		if config.BatchSize > 0 && config.ThroughputBytes%config.BatchSize == 0 {
 			_ = workFile.Sync()
 		}
 		latencyStop := time.Now().Sub(latencyStart)
 		if config.Results != nil {
 			latencies = append(latencies, latencyStop)
 		}
-		writeTotal += int64(n)
+		config.ThroughputBytes += int64(n)
 		lastPos += int64(n)
 	}
 
 	_ = workFile.Sync()
-	_ = workFile.Close()
+	config.ThroughputTime = time.Now().Sub(startTime)
 
 	if config.Results != nil {
 		config.Results.Lock()
-		config.Results.WriteThroughput[config.WriterPath] = append(config.Results.WriteThroughput[config.WriterPath], &Throughput{ID: config.ID, Bytes: writeTotal, Latencies: latencies, Time: time.Now().Sub(startTime)})
+		config.Results.WriteThroughput[config.WriterPath] = append(config.Results.WriteThroughput[config.WriterPath], &Throughput{ID: config.ID, Bytes: config.ThroughputBytes, Latencies: latencies, Time: config.ThroughputTime})
 		config.Results.Unlock()
 	}
 
@@ -309,10 +313,10 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf(
 			"[Writer %d] Wrote %0.2f MiB to %s (%0.2f MiB/sec, %0.2f sec.)\n",
 			config.ID,
-			float64(writeTotal)/MiB,
+			float64(config.ThroughputBytes)/MiB,
 			workFile.Name(),
-			float64(writeTotal)/MiB/time.Now().Sub(startTime).Seconds(),
-			time.Now().Sub(startTime).Seconds(),
+			float64(config.ThroughputBytes)/MiB/config.ThroughputTime.Seconds(),
+			config.ThroughputTime.Seconds(),
 		)
 	}
 }
