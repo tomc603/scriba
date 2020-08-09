@@ -48,6 +48,7 @@ func main() {
 		cliFileCount     int
 		cliFileSize      int64
 		cliIOLimit       int64
+		cliPrefill       bool
 		cliRecordStats   string
 		cliRecordLatency string
 		cliReadPattern   string
@@ -83,6 +84,7 @@ func main() {
 	flag.Int64Var(&cliBlockSize, "block", 65536, "The size of each IO operation")
 	flag.IntVar(&cliFileCount, "files", 1, "The number of files per path")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
+	flag.BoolVar(&cliPrefill, "prefill", false, "Pre-fill files before performing IO tests.")
 	flag.StringVar(&cliRecordLatency, "latency", "", "Save IO latency statistics to the specified path")
 	flag.StringVar(&cliRecordStats, "stats", "", "Save block device IO statistics to the specified path")
 	flag.StringVar(&cliReadPattern, "rpattern", "sequential", "The IO pattern for reader routines")
@@ -233,9 +235,15 @@ func main() {
 				log.Printf("ERROR: Unable to allocate %s. %s", filePath, allocErr)
 				os.Exit(2)
 			}
+			if cliPrefill {
+				wg.Add(1)
+				go prefill(filePath, cliFileSize, &wg)
+			}
+
 			ioFiles = append(ioFiles, filePath)
 		}
 	}
+	wg.Wait()
 
 	if cliRecordStats != "" {
 		go blockStats.CollectStats()

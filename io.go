@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"runtime"
 	"sync"
 	"time"
 )
@@ -38,6 +39,33 @@ type WriterConfig struct {
 	WriteTime   time.Duration
 	WriterPath  string
 	WriterType  uint8
+}
+
+func dropPageCache() {
+	//	/proc/sys/vm/drop_caches
+	if runtime.GOOS != "linux" {
+		if Verbose {
+			log.Printf("OS is not Linux, unable to drop PageCache.")
+		}
+		return
+	}
+
+	procFile, err := os.OpenFile("/proc/sys/vm/drop_caches", os.O_RDWR, 0666)
+	if err != nil {
+		log.Printf("Error: %s\n", err)
+		return
+	}
+
+	_, err = procFile.WriteString("1")
+	if err != nil {
+		log.Printf("Unable to write to /proc/sys/vm/drop_caches. %s", err)
+	}
+	_ = procFile.Sync()
+
+	err = procFile.Close()
+	if err != nil {
+		log.Printf("Unable to close /proc/sys/vm/drop_caches. %s", err)
+	}
 }
 
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
@@ -287,4 +315,63 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			time.Now().Sub(startTime).Seconds(),
 		)
 	}
+}
+
+func prefill(filePath string, fileSize int64, wg *sync.WaitGroup) {
+	var (
+		bytesNeeded   int64
+		data          []byte
+		readerBufSize int = 33554432
+		writeTotal    int64
+	)
+
+	defer wg.Done()
+
+	data = make([]byte, readerBufSize)
+	dr := NewDataReader(readerBufSize)
+
+	workFile, err := os.OpenFile(filePath, os.O_WRONLY, 0644)
+	if err != nil {
+		log.Printf("%s: Error: %s.\n", filePath, err)
+		return
+	}
+	defer workFile.Close()
+
+	if Verbose {
+		log.Printf("%s: Pre-filling starting.\n", filePath)
+	}
+
+	for {
+		if Stop {
+			break
+		}
+		if writeTotal >= fileSize {
+			if Verbose {
+				log.Printf("%s: Pre-filling complete.\n", filePath)
+			}
+			break
+		}
+		r, err := dr.Read(data)
+		if err != nil || r < readerBufSize {
+			log.Printf("%s: Data buffer filling failed. Read %d bytes, wanted %d.", filePath, r, readerBufSize)
+			return
+		}
+
+		bytesNeeded = int64(len(data))
+		if fileSize-writeTotal < int64(len(data)) {
+			bytesNeeded = fileSize - writeTotal
+		}
+
+		n, err := workFile.Write(data[:bytesNeeded])
+		if err != nil {
+			_ = workFile.Close()
+			log.Printf("%s: Error: %s\n", filePath, err)
+			return
+		}
+		writeTotal += int64(n)
+	}
+
+	_ = workFile.Sync()
+	_ = workFile.Close()
+	dropPageCache()
 }
