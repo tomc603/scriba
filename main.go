@@ -25,7 +25,7 @@ var (
 	Verbose      bool
 	VersionBuild string = "invalid"
 	VersionMajor string = "0"
-	VersionMinor string = "13"
+	VersionMinor string = "15"
 	BuildDate    string = "invalid"
 	//ratio_count   uint64
 )
