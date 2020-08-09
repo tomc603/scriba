@@ -129,7 +129,7 @@ func main() {
 		flag.Usage()
 		os.Exit(1)
 	}
-	ioPaths = flag.Args()
+	ioPaths = uniquePaths(flag.Args())
 
 	cliReadPattern = strings.ToLower(cliReadPattern)
 	switch cliReadPattern {
@@ -212,7 +212,7 @@ func main() {
 	setupSignalHandler()
 
 	log.Println("Creating files")
-	for i, ioPath := range ioPaths {
+	for _, ioPath := range ioPaths {
 		if Stop {
 			os.Exit(0)
 		}
@@ -227,7 +227,7 @@ func main() {
 				continue
 			}
 
-			filePath := path.Join(ioPath, fmt.Sprintf("scriba.path_%d.file_%d.data", i, j))
+			filePath := path.Join(ioPath, fmt.Sprintf("scriba.%d.data", j))
 			if Verbose {
 				log.Printf("Allocating %s\n", filePath)
 			}

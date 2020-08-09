@@ -20,6 +20,30 @@ const (
 	TB = 1e12
 )
 
+func uniquePaths(source []string) []string {
+	var output []string
+	var skip bool
+
+	// Iterate through the source slice,
+	// if the current element exists in the output slice, skip it.
+	// if the current element does not exist in the output slice, add it.
+	for _, sourceV := range source {
+		skip = false
+
+		for _, outputV := range output {
+			if outputV == sourceV {
+				skip = true
+				break
+			}
+		}
+		if !skip {
+			output = append(output, sourceV)
+		}
+	}
+
+	return output
+}
+
 // DevFromPath - Find the longest mountpoint prefixing path and return its matching device
 func DevFromPath(path string) string {
 	var candidate string
