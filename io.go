@@ -373,5 +373,4 @@ func prefill(filePath string, fileSize int64, wg *sync.WaitGroup) {
 
 	_ = workFile.Sync()
 	_ = workFile.Close()
-	dropPageCache()
 }

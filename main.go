@@ -244,6 +244,7 @@ func main() {
 		}
 	}
 	wg.Wait()
+	dropPageCache()
 
 	if cliRecordStats != "" {
 		go blockStats.CollectStats()
