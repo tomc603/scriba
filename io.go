@@ -113,12 +113,16 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		}
 		if config.ReadLimit > 0 && config.ThroughputBytes >= config.ReadLimit {
 			// A data limit has been specified and we've reached or exceeded it.
-			log.Printf("[Reader %d]: Data limit has elapsed. Stopping reader routine.\n", config.ID)
+			if Verbose {
+				log.Printf("[Reader %d]: Data limit has elapsed. Stopping reader routine.\n", config.ID)
+			}
 			break
 		}
 		if config.ReadTime > 0 && time.Now().Sub(startTime) >= config.ReadTime {
 			// A time limit has been specified and we've reached or exceeded it.
-			log.Printf("[Reader %d]: Time limit has elapsed. Stopping reader routine.\n", config.ID)
+			if Verbose {
+				log.Printf("[Reader %d]: Time limit has elapsed. Stopping reader routine.\n", config.ID)
+			}
 			break
 		}
 		bytesToRead = config.BlockSize
@@ -238,12 +242,16 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		}
 		if config.WriteLimit > 0 && config.ThroughputBytes >= config.WriteLimit {
 			// A size limit has been specified, and we've reached or exceeded that limit.
-			log.Printf("[Writer %d]: Data limit has elapsed. Stopping writer routine.\n", config.ID)
+			if Verbose {
+				log.Printf("[Writer %d]: Data limit has elapsed. Stopping writer routine.\n", config.ID)
+			}
 			break
 		}
 		if config.WriteTime != 0 && time.Now().Sub(startTime) >= config.WriteTime {
 			// A time limit has been specified, and we've reached or exceeded that limit.
-			log.Printf("[Writer %d]: Time limit has elapsed. Stopping writer routine.\n", config.ID)
+			if Verbose {
+				log.Printf("[Writer %d]: Time limit has elapsed. Stopping writer routine.\n", config.ID)
+			}
 			break
 		}
 		r, err := dr.Read(data)

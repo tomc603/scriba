@@ -334,38 +334,40 @@ func main() {
 
 	// Output reader routine throughputs
 	fmt.Println("Reader performance:")
-	pathThroughputTotals := make(map[string]float64)
+	//pathThroughputTotals := make(map[string]float64)
 	pathThroughputGrandTotal := 0.0
 	for _, rc := range readerConfigs {
-		for _, v := range ioPaths {
-			if strings.HasPrefix(rc.ReaderPath, v) {
-				pathThroughputTotals[v] += float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
-			}
-			pathThroughputTotals[rc.ReaderPath] = float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
-			pathThroughputGrandTotal += float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
-		}
+		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", rc.ID, rc.ReaderPath, float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds())
+		//pathThroughputTotals[rc.ReaderPath] = float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
+		pathThroughputGrandTotal += float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
+		//for _, v := range ioPaths {
+		//	if strings.HasPrefix(rc.ReaderPath, v) {
+		//		pathThroughputTotals[v] += float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
+		//	}
+		//}
 	}
-	for k, v := range pathThroughputTotals {
-		fmt.Printf("%s: %0.2f MiB/sec.\n", k, v)
-	}
+	//for k, v := range pathThroughputTotals {
+	//	fmt.Printf("%s: %0.2f MiB/sec.\n", k, v)
+	//}
 	fmt.Printf("Read Total: %0.2f MiB/sec.\n", pathThroughputGrandTotal)
 
 	// Output writer routine throughputs
 	fmt.Println("Writer performance:")
-	pathThroughputTotals = make(map[string]float64)
+	//pathThroughputTotals = make(map[string]float64)
 	pathThroughputGrandTotal = 0.0
 	for _, wc := range writerConfigs {
-		for _, v := range ioPaths {
-			if strings.HasPrefix(wc.WriterPath, v) {
-				pathThroughputTotals[v] += float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
-			}
-			pathThroughputTotals[wc.WriterPath] = float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
-			pathThroughputGrandTotal += float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
-		}
+		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", wc.ID, wc.WriterPath, float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds())
+		//pathThroughputTotals[wc.WriterPath] = float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
+		pathThroughputGrandTotal += float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
+		//for _, v := range ioPaths {
+		//	//if strings.HasPrefix(wc.WriterPath, v) {
+		//	//	pathThroughputTotals[v] += float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
+		//	//}
+		//}
 	}
-	for k, v := range pathThroughputTotals {
-		fmt.Printf("%s: %0.2f MiB/sec.\n", k, v)
-	}
+	//for k, v := range pathThroughputTotals {
+	//	fmt.Printf("%s: %0.2f MiB/sec.\n", k, v)
+	//}
 	fmt.Printf("Write Total: %0.2f MiB/sec.\n", pathThroughputGrandTotal)
 
 	if cliRecordLatency != "" && ioStatsResults != nil {
