@@ -30,11 +30,19 @@ var (
 	//ratio_count   uint64
 )
 
-func setupSignalHandler() {
+func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-c
+		log.Print("Reader Throughput:")
+		for _, v := range *rc {
+			log.Printf("[%d] %s: %s\n", v.ID, v.ReaderPath, humanizeSize(float64(v.ThroughputBytes), false))
+		}
+		log.Print("Writer Throughput:")
+		for _, v := range *wc {
+			log.Printf("[%d] %s: %s\n", v.ID, v.WriterPath, humanizeSize(float64(v.ThroughputBytes), false))
+		}
 		log.Println("Received CTRL+C. Stopping routines.")
 		Stop = true
 	}()
@@ -209,7 +217,7 @@ func main() {
 	}
 
 	// Wait for CTRL+C in the background
-	setupSignalHandler()
+	setupSignalHandler(&writerConfigs, &readerConfigs)
 
 	log.Println("Creating files")
 	for _, ioPath := range ioPaths {
