@@ -32,19 +32,26 @@ var (
 
 func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
 	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	go func() {
-		<-c
-		log.Print("Reader Throughput:")
-		for _, v := range *rc {
-			log.Printf("[%d] %s: %s\n", v.ID, v.ReaderPath, humanizeSize(float64(v.ThroughputBytes), false))
+		sig := <-c
+		switch sig {
+		case syscall.SIGTERM, os.Interrupt:
+			log.Println("Received CTRL+C. Stopping routines.")
+			Stop = true
+		case syscall.SIGUSR1:
+			fmt.Print("Reader Throughput:\n")
+			for _, v := range *rc {
+				fmt.Printf("  [%d] %s: %s\n", v.ID, v.ReaderPath, humanizeSize(float64(v.ThroughputBytes), false))
+			}
+
+			fmt.Print("Writer Throughput:\n")
+			for _, v := range *wc {
+				fmt.Printf("  [%d] %s: %s\n", v.ID, v.WriterPath, humanizeSize(float64(v.ThroughputBytes), false))
+			}
+		default:
+			log.Printf("ERROR: Received unhandled signal: %s\n", sig)
 		}
-		log.Print("Writer Throughput:")
-		for _, v := range *wc {
-			log.Printf("[%d] %s: %s\n", v.ID, v.WriterPath, humanizeSize(float64(v.ThroughputBytes), false))
-		}
-		log.Println("Received CTRL+C. Stopping routines.")
-		Stop = true
 	}()
 }
 
@@ -345,7 +352,7 @@ func main() {
 	//pathThroughputTotals := make(map[string]float64)
 	pathThroughputGrandTotal := 0.0
 	for _, rc := range readerConfigs {
-		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", rc.ID, rc.ReaderPath, float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds())
+		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", rc.ID, rc.ReaderPath, float64(rc.ThroughputBytes)/MiB/rc.ThroughputTime.Seconds())
 		//pathThroughputTotals[rc.ReaderPath] = float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
 		pathThroughputGrandTotal += float64(rc.ThroughputBytes) / MiB / rc.ThroughputTime.Seconds()
 		//for _, v := range ioPaths {
@@ -364,7 +371,7 @@ func main() {
 	//pathThroughputTotals = make(map[string]float64)
 	pathThroughputGrandTotal = 0.0
 	for _, wc := range writerConfigs {
-		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", wc.ID, wc.WriterPath, float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds())
+		fmt.Printf("[%d] %s: %0.2f MiB/sec.\n", wc.ID, wc.WriterPath, float64(wc.ThroughputBytes)/MiB/wc.ThroughputTime.Seconds())
 		//pathThroughputTotals[wc.WriterPath] = float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
 		pathThroughputGrandTotal += float64(wc.ThroughputBytes) / MiB / wc.ThroughputTime.Seconds()
 		//for _, v := range ioPaths {
