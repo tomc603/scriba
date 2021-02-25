@@ -34,23 +34,25 @@ func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
 	c := make(chan os.Signal)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	go func() {
-		sig := <-c
-		switch sig {
-		case syscall.SIGTERM, os.Interrupt:
-			log.Println("Received CTRL+C. Stopping routines.")
-			Stop = true
-		case syscall.SIGUSR1:
-			fmt.Print("Reader Throughput:\n")
-			for _, v := range *rc {
-				fmt.Printf("  [%d] %s: %s\n", v.ID, v.ReaderPath, humanizeSize(float64(v.ThroughputBytes), false))
-			}
+		for sig := range c {
+			switch sig {
+			case syscall.SIGTERM, os.Interrupt:
+				log.Println("Received CTRL+C. Stopping routines.")
+				Stop = true
+				return
+			case syscall.SIGUSR1:
+				fmt.Print("Reader Throughput:\n")
+				for _, v := range *rc {
+					fmt.Printf("  [%d] %s: %s\n", v.ID, v.ReaderPath, humanizeSize(float64(v.ThroughputBytes), false))
+				}
 
-			fmt.Print("Writer Throughput:\n")
-			for _, v := range *wc {
-				fmt.Printf("  [%d] %s: %s\n", v.ID, v.WriterPath, humanizeSize(float64(v.ThroughputBytes), false))
+				fmt.Print("Writer Throughput:\n")
+				for _, v := range *wc {
+					fmt.Printf("  [%d] %s: %s\n", v.ID, v.WriterPath, humanizeSize(float64(v.ThroughputBytes), false))
+				}
+			default:
+				log.Printf("ERROR: Received unhandled signal: %s\n", sig)
 			}
-		default:
-			log.Printf("ERROR: Received unhandled signal: %s\n", sig)
 		}
 	}()
 }
@@ -237,6 +239,8 @@ func main() {
 		}
 
 		for j := 0; j < cliFileCount; j++ {
+			// Since we can't create files on raw devices, just use the raw device
+			// TODO: Add generic block device detection
 			if ioPath == "/dev/null" || ioPath == "/dev/zero" {
 				ioFiles = append(ioFiles, ioPath)
 				continue
