@@ -152,10 +152,10 @@ func main() {
 	switch cliReadPattern {
 	case "random":
 		readPattern = Random
-	case "sequential":
-		readPattern = Sequential
 	case "repeat":
 		readPattern = Repeat
+	case "sequential":
+		readPattern = Sequential
 	default:
 		log.Printf("ERROR: Read pattern must be random, repeat, or sequential. %s is invalid.\n", cliReadPattern)
 		os.Exit(1)
@@ -165,12 +165,14 @@ func main() {
 	switch cliWritePattern {
 	case "random":
 		writePattern = Random
-	case "sequential":
-		writePattern = Sequential
 	case "repeat":
 		writePattern = Repeat
+	case "sequential":
+		writePattern = Sequential
+	case "zipf":
+		writePattern = Zipf
 	default:
-		log.Printf("ERROR: Read pattern must be random, repeat, or sequential. %s is invalid.\n", cliWritePattern)
+		log.Printf("ERROR: Read pattern must be random, repeat, sequential, or zipf. %s is invalid.\n", cliWritePattern)
 		os.Exit(1)
 	}
 

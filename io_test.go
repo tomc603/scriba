@@ -1,16 +1,25 @@
 package main
 
 import (
-	"log"
 	"math/rand"
 	"testing"
 )
 
 func BenchmarkRandomizer(b *testing.B) {
-	var randpos int64
+	for i := 0; i < b.N; i++ {
+		for n := 0; n < 1000000; n++ {
+			_ = rand.Int63n(1000000000)
+		}
+	}
+}
+
+func BenchmarkZipf(b *testing.B) {
+	r := rand.New(rand.NewSource(299792458))
+	z := rand.NewZipf(r, 1.07, 1, 1000000000)
 
 	for i := 0; i < b.N; i++ {
-		randpos = rand.Int63n(1024 * TB)
+		for n := 0; n < 1000000; n++ {
+			_ = z.Uint64()
+		}
 	}
-	log.Printf("Final random position: %d", randpos)
 }

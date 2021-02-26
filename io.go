@@ -14,6 +14,7 @@ const (
 	Sequential uint8 = iota
 	Random
 	Repeat
+	Zipf
 )
 
 type ReaderConfig struct {
