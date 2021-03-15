@@ -21,6 +21,7 @@ type ReaderConfig struct {
 	BlockSize       int64
 	FileSize        int64
 	ID              int
+	RandomMap       *[]int64
 	Results         *IOStats
 	ReadLimit       int64
 	ReadTime        time.Duration
@@ -36,6 +37,7 @@ type WriterConfig struct {
 	BlockSize       int64
 	FileSize        int64
 	ID              int
+	RandomMap       *[]int64
 	Results         *IOStats
 	StartOffset     int64
 	ThroughputBytes int64
@@ -77,11 +79,13 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
 		bytesToRead  int64
 		latencies    []time.Duration
+		mapIndex     int
 		seek         bool
 		seekPosition int64
 	)
 
 	buf := make([]byte, config.BlockSize)
+	mapIndex = rand.Intn(len(*config.RandomMap))
 
 	defer wg.Done()
 
@@ -134,8 +138,13 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		// If we aren't performing sequential I/O, calculate the position to seek for the next operation
 		switch config.ReaderType {
 		case Random:
-			seekPosition = rand.Int63n(config.FileSize - bytesToRead)
+			mapIndex+=1
+			if mapIndex > len(*config.RandomMap)-1 {
+				seekPosition = 0
+			}
+			seekPosition = (*config.RandomMap)[mapIndex]
 			seek = true
+			//seekPosition = rand.Int63n(config.FileSize - bytesToRead)
 		case Repeat:
 			seekPosition = config.StartOffset
 			seek = true
@@ -197,12 +206,14 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		data         []byte
 		lastPos      int64
 		latencies    []time.Duration
+		mapIndex     int
 		seek         bool
 		seekPosition int64
 	)
 
 	readerBufSize := 33554432
 	data = make([]byte, config.BlockSize)
+	mapIndex = rand.Intn(len(*config.RandomMap))
 
 	defer wg.Done()
 
@@ -267,8 +278,13 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 
 		switch config.WriterType {
 		case Random:
-			seekPosition = rand.Int63n(config.FileSize - config.BlockSize)
+			mapIndex+=1
+			if mapIndex > len(*config.RandomMap)-1 {
+				seekPosition = 0
+			}
+			seekPosition = (*config.RandomMap)[mapIndex]
 			seek = true
+			//seekPosition = rand.Int63n(config.FileSize - config.BlockSize)
 		case Repeat:
 			seekPosition = config.StartOffset
 			seek = true

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"os/signal"
 	"path"
@@ -78,6 +79,7 @@ func main() {
 		ioStatsResults   *IOStats
 		ioRunTime        time.Duration
 		keep             bool
+		randomMap        []int64
 		readerConfigs    []*ReaderConfig
 		readPattern      uint8
 		version          bool
@@ -174,6 +176,22 @@ func main() {
 	default:
 		log.Printf("ERROR: Read pattern must be random, repeat, sequential, or zipf. %s is invalid.\n", cliWritePattern)
 		os.Exit(1)
+	}
+
+	if writePattern == Random || readPattern == Random {
+		randomMap = make([]int64, cliFileSize / cliBlockSize)
+		if Debug {
+			log.Printf("Populating %d random map entries.\n", len(randomMap))
+		}
+		for k, _ := range randomMap {
+			randomMap[k]=int64(k)
+		}
+		if Debug {
+			log.Println("Shuffling random map entries.")
+		}
+		rand.Shuffle(len(randomMap), func(i, j int) {
+			randomMap[i], randomMap[j] = randomMap[j], randomMap[i]
+		})
 	}
 
 	if cliRecordStats != "" && runtime.GOOS != "linux" {
@@ -284,6 +302,7 @@ func main() {
 					BatchSize:   cliBatchSize,
 					BlockSize:   cliBlockSize,
 					FileSize:    cliFileSize,
+					RandomMap:   &randomMap,
 					StartOffset: cliFileSize / int64(cliWriters) * int64(writerID),
 					WriteLimit:  cliIOLimit,
 					WriteTime:   ioRunTime,
@@ -310,6 +329,7 @@ func main() {
 					ID:          readerID,
 					BlockSize:   cliBlockSize,
 					FileSize:    cliFileSize,
+					RandomMap:   &randomMap,
 					ReadLimit:   cliIOLimit,
 					ReadTime:    ioRunTime,
 					ReaderPath:  ioFile,
