@@ -140,7 +140,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		case Random:
 			mapIndex+=1
 			if mapIndex > len(*config.RandomMap)-1 {
-				seekPosition = 0
+				mapIndex = 0
 			}
 			seekPosition = (*config.RandomMap)[mapIndex]
 			seek = true
@@ -280,7 +280,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		case Random:
 			mapIndex+=1
 			if mapIndex > len(*config.RandomMap)-1 {
-				seekPosition = 0
+				mapIndex = 0
 			}
 			seekPosition = (*config.RandomMap)[mapIndex]
 			seek = true
