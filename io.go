@@ -85,7 +85,9 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	)
 
 	buf := make([]byte, config.BlockSize)
-	mapIndex = rand.Intn(len(*config.RandomMap))
+	if len(*config.RandomMap) > 0 {
+		mapIndex = rand.Intn(len(*config.RandomMap))
+	}
 
 	defer wg.Done()
 
@@ -213,7 +215,9 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 
 	readerBufSize := 33554432
 	data = make([]byte, config.BlockSize)
-	mapIndex = rand.Intn(len(*config.RandomMap))
+	if len(*config.RandomMap) > 0 {
+		mapIndex = rand.Intn(len(*config.RandomMap))
+	}
 
 	defer wg.Done()
 
