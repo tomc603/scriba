@@ -28,7 +28,6 @@ var (
 	VersionMajor string = "0"
 	VersionMinor string = "15"
 	BuildDate    string = "invalid"
-	//ratio_count   uint64
 )
 
 func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
@@ -63,6 +62,7 @@ func main() {
 		blockStats       SysStatsCollection
 		cliBatchSize     int64
 		cliBlockSize     int64
+		cliBufferSize    int
 		cliFileCount     int
 		cliFileSize      int64
 		cliIOLimit       int64
@@ -74,6 +74,7 @@ func main() {
 		cliSeconds       int
 		cliWritePattern  string
 		cliWriters       int
+		cliZero          bool
 		ioFiles          []string
 		ioPaths          []string
 		ioStatsResults   *IOStats
@@ -101,6 +102,7 @@ func main() {
 	flag.BoolVar(&Debug, "debug", false, "Output debugging messages")
 	flag.Int64Var(&cliBatchSize, "batch", 104857600, "The amount of data each writer should write before calling Sync")
 	flag.Int64Var(&cliBlockSize, "block", 65536, "The size of each IO operation")
+	flag.IntVar(&cliBufferSize, "buffer", 33554432, "Data buffer size for IO operations. Min: 65536.")
 	flag.IntVar(&cliFileCount, "files", 1, "The number of files per path")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.BoolVar(&cliPrefill, "prefill", false, "Pre-fill files before performing IO tests.")
@@ -115,6 +117,7 @@ func main() {
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
 	flag.StringVar(&cliWritePattern, "wpattern", "sequential", "The IO pattern for writer routines")
 	flag.IntVar(&cliWriters, "writers", 1, "The number of writer routines")
+	flag.BoolVar(&cliZero, "zeroes", false, "Use zero data instead of pseudo-random data.")
 	flag.Parse()
 
 	if Debug {
@@ -179,12 +182,12 @@ func main() {
 	}
 
 	if writePattern == Random || readPattern == Random {
-		randomMap = make([]int64, cliFileSize / cliBlockSize)
+		randomMap = make([]int64, cliFileSize/cliBlockSize)
 		if Debug {
 			log.Printf("Populating %d random map entries.\n", len(randomMap))
 		}
 		for k, _ := range randomMap {
-			randomMap[k]=int64(k)
+			randomMap[k] = int64(k)
 		}
 		if Debug {
 			log.Println("Shuffling random map entries.")
@@ -276,7 +279,7 @@ func main() {
 			}
 			if cliPrefill {
 				wg.Add(1)
-				go prefill(filePath, cliFileSize, &wg)
+				go prefill(filePath, cliFileSize, cliZero, &wg)
 			}
 
 			ioFiles = append(ioFiles, filePath)
@@ -301,6 +304,7 @@ func main() {
 					ID:          writerID,
 					BatchSize:   cliBatchSize,
 					BlockSize:   cliBlockSize,
+					BufferSize:  cliBufferSize,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
 					StartOffset: cliFileSize / int64(cliWriters) * int64(writerID),
@@ -308,6 +312,7 @@ func main() {
 					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
 					WriterType:  writePattern,
+					Zeroes:      cliZero,
 					Results:     ioStatsResults,
 				}
 				writerConfigs = append(writerConfigs, &wc)

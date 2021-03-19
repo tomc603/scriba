@@ -35,6 +35,7 @@ type ReaderConfig struct {
 type WriterConfig struct {
 	BatchSize       int64
 	BlockSize       int64
+	BufferSize      int
 	FileSize        int64
 	ID              int
 	RandomMap       *[]int64
@@ -46,6 +47,7 @@ type WriterConfig struct {
 	WriteTime       time.Duration
 	WriterPath      string
 	WriterType      uint8
+	Zeroes          bool
 }
 
 func dropPageCache() {
@@ -140,7 +142,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		// If we aren't performing sequential I/O, calculate the position to seek for the next operation
 		switch config.ReaderType {
 		case Random:
-			mapIndex+=1
+			mapIndex += 1
 			if mapIndex > len(*config.RandomMap)-1 {
 				mapIndex = 0
 			}
@@ -213,7 +215,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		seekPosition int64
 	)
 
-	readerBufSize := 33554432
+	readerBufSize := config.BufferSize
 	data = make([]byte, config.BlockSize)
 	if len(*config.RandomMap) > 0 {
 		mapIndex = rand.Intn(len(*config.RandomMap))
@@ -224,7 +226,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	if Debug {
 		log.Printf("[Writer %d] Generating random data buffer\n", config.ID)
 	}
-	dr := NewDataReader(readerBufSize)
+	dr := NewDataReader(readerBufSize, config.Zeroes)
 	if Debug {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
@@ -282,7 +284,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 
 		switch config.WriterType {
 		case Random:
-			mapIndex+=1
+			mapIndex += 1
 			if mapIndex > len(*config.RandomMap)-1 {
 				mapIndex = 0
 			}
@@ -350,7 +352,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	}
 }
 
-func prefill(filePath string, fileSize int64, wg *sync.WaitGroup) {
+func prefill(filePath string, fileSize int64, zeroes bool, wg *sync.WaitGroup) {
 	var (
 		bytesNeeded   int64
 		data          []byte
@@ -361,7 +363,7 @@ func prefill(filePath string, fileSize int64, wg *sync.WaitGroup) {
 	defer wg.Done()
 
 	data = make([]byte, readerBufSize)
-	dr := NewDataReader(readerBufSize)
+	dr := NewDataReader(readerBufSize, zeroes)
 
 	workFile, err := os.OpenFile(filePath, os.O_WRONLY, 0644)
 	if err != nil {

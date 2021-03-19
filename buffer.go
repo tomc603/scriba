@@ -2,6 +2,7 @@ package main
 
 import (
 	"math/rand"
+	"time"
 )
 
 type dataReader struct {
@@ -9,7 +10,7 @@ type dataReader struct {
 	position int
 }
 
-func NewDataReader(size int) *dataReader {
+func NewDataReader(size int, zero bool) *dataReader {
 	// Create 64K minimum size buffer
 	if size < 65536 {
 		size = 65536
@@ -19,9 +20,16 @@ func NewDataReader(size int) *dataReader {
 	initialPosition := rand.Intn(len(data))
 	dr := &dataReader{data: data, position: initialPosition}
 
-	_, err := rand.Read(dr.data)
-	if err != nil {
-		return nil
+	if zero {
+		for i, _ := range data {
+			data[i] = 0
+		}
+	} else {
+		rand.Seed(time.Now().UnixNano())
+		_, err := rand.Read(dr.data)
+		if err != nil {
+			return nil
+		}
 	}
 
 	return dr
