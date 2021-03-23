@@ -21,13 +21,9 @@ import (
 //)
 
 var (
-	Debug        bool
-	Stop         bool
-	Verbose      bool
-	VersionBuild string = "invalid"
-	VersionMajor string = "0"
-	VersionMinor string = "15"
-	BuildDate    string = "invalid"
+	Debug   bool
+	Stop    bool
+	Verbose bool
 )
 
 func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
@@ -126,7 +122,7 @@ func main() {
 	}
 
 	if version {
-		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Date: %s\n", path.Base(os.Args[0]), VersionMajor, VersionMinor, VersionBuild, BuildDate)
+		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Tag : %s\nBuild Date: %s\n", path.Base(os.Args[0]), VersionMajor, VersionMinor, VersionPoint, VersionTag, BuildDate)
 		os.Exit(0)
 	}
 
