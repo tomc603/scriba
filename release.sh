@@ -12,16 +12,16 @@ declare -i VER_NEXT_MINOR
 declare -i VER_NEXT_POINT
 
 function usage() {
-  echo -e "\n$(basename $0) - Create a versioned release for the current project in Major.Minor.Point format." 1>&2
+  echo -e "\n$(basename "$0") - Create a versioned release for the current project in Major.Minor.Point format." 1>&2
   echo -e "\n  Usage:" 1>&2
-  echo "  $(basename $0) [-a|--major] [-h|--help] [-i|--minor] [-p|--point]" 1>&2
+  echo "  $(basename "$0") [-a|--major] [-h|--help] [-i|--minor] [-p|--point]" 1>&2
   echo "    -a|--major    Increase the Major version value." 1>&2
   echo "    -h|--help     Display this help message." 1>&2
   echo "    -i|--minor    Increase the Minor version value." 1>&2
   echo "    -p|--point    Increase the Point version value. Default." 1>&2
 }
 
-if [[ ! -e VERSION ]]; then
+if [[ ! -f VERSION ]]; then
   echo "ERROR: File VERSION does not exist." 1>&2
   exit 2
 fi
@@ -34,7 +34,6 @@ if [[ -z ${VERSION_DATA} ]]; then
 fi
 
 if [[ $VERSION_DATA =~ $VERSION_RE ]]; then
-#  echo "${BASH_REMATCH[@]}"
   VER_CUR_MAJOR="${BASH_REMATCH[1]}"
   VER_CUR_MINOR="${BASH_REMATCH[2]}"
   VER_CUR_POINT="${BASH_REMATCH[3]}"

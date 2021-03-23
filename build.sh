@@ -5,11 +5,13 @@ declare VERSION_DATA
 declare -i VER_CUR_MAJOR
 declare -i VER_CUR_MINOR
 declare -i VER_CUR_POINT
+declare build_date
+declare git_rev
 
-declare build_date=$(date -u +%Y%m%d.%H%M%S)
-declare git_rev=$(git rev-parse --short HEAD)
+build_date=$(date -u +%Y%m%d.%H%M%S)
+git_rev=$(git rev-parse --short HEAD)
 
-if [[ ! -e VERSION ]]; then
+if [[ ! -f VERSION ]]; then
   echo "ERROR: File VERSION does not exist." 1>&2
   exit 2
 fi
