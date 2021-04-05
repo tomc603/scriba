@@ -269,7 +269,8 @@ func main() {
 			if Verbose {
 				log.Printf("Allocating %s\n", filePath)
 			}
-			if allocErr := Allocate(filePath, cliFileSize); allocErr != nil {
+
+			if allocErr := Allocate(filePath, cliFileSize, keep); allocErr != nil {
 				log.Printf("ERROR: Unable to allocate %s. %s", filePath, allocErr)
 				os.Exit(2)
 			}

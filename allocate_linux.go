@@ -11,7 +11,7 @@ const (
 	FALLOC_FL_ZERO_RANGE = 0x10
 )
 
-func Allocate(path string, size int64) error {
+func Allocate(path string, size int64, keep bool) error {
 	s, statErr := os.Stat(path)
 	if statErr != nil {
 		if !errors.Is(statErr, os.ErrNotExist) {
@@ -23,14 +23,14 @@ func Allocate(path string, size int64) error {
 	// The file exists, so let's see if we can optimize away the fallocate.
 	if s != nil {
 		// If the requested size is the same as the existing file size, let's leave it alone for optimization's sake.
-		if s.Size() == size {
+		if s.Size() == size && keep {
 			if Debug {
 				log.Printf("Allocate(): Requested size and existing file size are the same. Skipping.\n")
 			}
 			return nil
 		}
 
-		// The target size is smaller than the existing file size. Let's truncate it to the requested size.
+		// The requested size is smaller than the existing file size. Let's truncate it to the requested size.
 		if s.Size() > size {
 			truncErr := os.Truncate(path, size)
 			if truncErr != nil {
