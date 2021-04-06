@@ -182,7 +182,7 @@ func main() {
 		if Debug {
 			log.Printf("Populating %d random map entries.\n", len(randomMap))
 		}
-		for k, _ := range randomMap {
+		for k := range randomMap {
 			randomMap[k] = int64(k)
 		}
 		if Debug {

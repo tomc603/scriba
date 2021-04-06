@@ -32,5 +32,5 @@ if [[ -z ${VER_CUR_MAJOR} || -z ${VER_CUR_MINOR} || -z ${VER_CUR_POINT} ]]; then
 fi
 
 echo "Building ${VER_CUR_MAJOR}.${VER_CUR_MINOR}.${VER_CUR_POINT}, ${git_rev}, ${build_date}" 1>&2
-GOOS=linux GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} main.VersionMinor=${VER_CUR_MINOR} main.VersionPoint=${VER_CUR_POINT} main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.linux
-GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} main.VersionMinor=${VER_CUR_MINOR} main.VersionPoint=${VER_CUR_POINT} main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.macos
+GOOS=linux GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.linux
+GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.macos

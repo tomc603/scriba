@@ -109,7 +109,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	}
 
 	if Debug {
-		log.Printf("[Reader %d] Starting writer\n", config.ID)
+		log.Printf("[Reader %d] Starting reader\n", config.ID)
 	}
 
 	startTime := time.Now()
