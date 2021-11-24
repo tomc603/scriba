@@ -59,6 +59,7 @@ func main() {
 		cliBatchSize     int64
 		cliBlockSize     int64
 		cliBufferSize    int
+		cliDirect        bool
 		cliFileCount     int
 		cliFileSize      int64
 		cliIOLimit       int64
@@ -99,6 +100,7 @@ func main() {
 	flag.Int64Var(&cliBatchSize, "batch", 104857600, "The amount of data each writer should write before calling Sync")
 	flag.Int64Var(&cliBlockSize, "block", 65536, "The size of each IO operation")
 	flag.IntVar(&cliBufferSize, "buffer", 33554432, "Data buffer size for IO operations. Min: 65536.")
+	flag.BoolVar(&cliDirect, "direct", false, "Linux only: Use direct file IO to skip filesystem cache. Default: false")
 	flag.IntVar(&cliFileCount, "files", 1, "The number of files per path")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
 	flag.BoolVar(&cliPrefill, "prefill", false, "Pre-fill files before performing IO tests.")
@@ -124,6 +126,14 @@ func main() {
 	if version {
 		fmt.Printf("%s\nVersion   : %s.%s.%s\nBuild Tag : %s\nBuild Date: %s\n", path.Base(os.Args[0]), VersionMajor, VersionMinor, VersionPoint, VersionTag, BuildDate)
 		os.Exit(0)
+	}
+
+	if cliDirect {
+		osname := runtime.GOOS
+		if osname != "Linux" {
+			log.Println("ERROR: Direct I/O is only supported by Linux.")
+			os.Exit(1)
+		}
 	}
 
 	if cliReaders == 0 && cliWriters == 0 {
@@ -302,6 +312,7 @@ func main() {
 					BatchSize:   cliBatchSize,
 					BlockSize:   cliBlockSize,
 					BufferSize:  cliBufferSize,
+					Direct:      cliDirect,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
 					StartOffset: cliFileSize / int64(cliWriters) * int64(writerID),
@@ -330,6 +341,7 @@ func main() {
 				rc := ReaderConfig{
 					ID:          readerID,
 					BlockSize:   cliBlockSize,
+					Direct:      cliDirect,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
 					ReadLimit:   cliIOLimit,

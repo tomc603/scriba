@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const (
 
 type ReaderConfig struct {
 	BlockSize       int64
+	Direct          bool
 	FileSize        int64
 	ID              int
 	RandomMap       *[]int64
@@ -36,6 +38,7 @@ type WriterConfig struct {
 	BatchSize       int64
 	BlockSize       int64
 	BufferSize      int
+	Direct          bool
 	FileSize        int64
 	ID              int
 	RandomMap       *[]int64
@@ -77,6 +80,14 @@ func dropPageCache() {
 	}
 }
 
+func readerFlags(direct bool) int {
+	return syscall.O_RDONLY
+}
+
+func writerFlags(direct bool) int {
+	return syscall.O_WRONLY
+}
+
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 	var (
 		bytesToRead  int64
@@ -93,7 +104,7 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	defer wg.Done()
 
-	workFile, err := os.OpenFile(config.ReaderPath, os.O_RDONLY, 0666)
+	workFile, err := os.OpenFile(config.ReaderPath, readerFlags(config.Direct), 0666)
 	if err != nil {
 		log.Printf("[Reader %d] Error: %s\n", config.ID, err)
 		return
@@ -121,14 +132,14 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			break
 		}
 		if config.ReadLimit > 0 && config.ThroughputBytes >= config.ReadLimit {
-			// A data limit has been specified and we've reached or exceeded it.
+			// A data limit has been specified, and we've reached or exceeded it.
 			if Verbose {
 				log.Printf("[Reader %d]: Data limit has elapsed. Stopping reader routine.\n", config.ID)
 			}
 			break
 		}
 		if config.ReadTime > 0 && time.Now().Sub(startTime) >= config.ReadTime {
-			// A time limit has been specified and we've reached or exceeded it.
+			// A time limit has been specified, and we've reached or exceeded it.
 			if Verbose {
 				log.Printf("[Reader %d]: Time limit has elapsed. Stopping reader routine.\n", config.ID)
 			}
@@ -235,7 +246,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
 
-	workFile, err := os.OpenFile(config.WriterPath, os.O_WRONLY, 0644)
+	workFile, err := os.OpenFile(config.WriterPath, writerFlags(config.Direct), 0644)
 	if err != nil {
 		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
 		return
