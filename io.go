@@ -7,7 +7,6 @@ import (
 	"os"
 	"runtime"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -78,14 +77,6 @@ func dropPageCache() {
 	if err != nil {
 		log.Printf("Unable to close /proc/sys/vm/drop_caches. %s", err)
 	}
-}
-
-func readerFlags(direct bool) int {
-	return syscall.O_RDONLY
-}
-
-func writerFlags(direct bool) int {
-	return syscall.O_WRONLY
 }
 
 func reader(config *ReaderConfig, wg *sync.WaitGroup) {
