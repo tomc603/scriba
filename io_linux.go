@@ -4,7 +4,7 @@ import (
 	"syscall"
 )
 
-func readerFlags() int {
+func readerFlags(direct bool) int {
 	if direct {
 		return syscall.O_RDONLY | syscall.O_DIRECT
 	}
