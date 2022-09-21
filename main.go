@@ -72,7 +72,6 @@ func main() {
 		cliSeconds       int
 		cliWritePattern  string
 		cliWriters       int
-		cliZero          bool
 		ioFiles          []string
 		ioPaths          []string
 		ioStatsResults   *IOStats
@@ -118,7 +117,6 @@ func main() {
 	flag.BoolVar(&version, "version", false, "Output binary version and exit")
 	flag.StringVar(&cliWritePattern, "wpattern", "sequential", "The IO pattern for writer routines")
 	flag.IntVar(&cliWriters, "writers", 1, "The number of writer routines")
-	flag.BoolVar(&cliZero, "zeroes", false, "Use zero data instead of pseudo-random data.")
 	flag.Parse()
 
 	if Debug {
@@ -165,7 +163,7 @@ func main() {
 	// TODO: Interpret bytePattern flag (55, AA, FF, random, zero)
 	cliBytePattern = strings.ToLower(cliBytePattern)
 	switch cliBytePattern {
-	case "zero":
+	case "zero", "00":
 		bytePattern = PatternZero
 	case "random":
 		bytePattern = PatternRand
