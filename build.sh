@@ -5,6 +5,8 @@ declare VERSION_DATA
 declare -i VER_CUR_MAJOR
 declare -i VER_CUR_MINOR
 declare -i VER_CUR_POINT
+declare -a BUILD_ARCH_LIST=( arm64 amd64 )
+declare -a BUILD_OS_LIST=( darwin linux )
 declare build_date
 declare git_rev
 
@@ -32,8 +34,16 @@ if [[ -z ${VER_CUR_MAJOR} || -z ${VER_CUR_MINOR} || -z ${VER_CUR_POINT} ]]; then
 fi
 
 echo "Building ${VER_CUR_MAJOR}.${VER_CUR_MINOR}.${VER_CUR_POINT}, ${git_rev}, ${build_date}" 1>&2
-GOOS=linux GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.x64.linux
-GOOS=linux GOARCH=arm64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.arm64.linux
-GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.x64.macos
-GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.arm64.macos
+for BUILD_OS in ${BUILD_OS_LIST[@]}; do
+  for BUILD_ARCH in ${BUILD_ARCH_LIST[@]}; do
+    echo "  * ${BUILD_OS}, ${BUILD_ARCH}"
+    GOOS=${BUILD_OS} GOARCH=${BUILD_ARCH} go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba-${BUILD_ARCH}.${BUILD_OS}
+  done
+done
+
+# echo "Building ${VER_CUR_MAJOR}.${VER_CUR_MINOR}.${VER_CUR_POINT}, ${git_rev}, ${build_date}" 1>&2
+# GOOS=linux GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.x64.linux
+# GOOS=linux GOARCH=arm64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.arm64.linux
+# GOOS=darwin GOARCH=amd64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.x64.macos
+# GOOS=darwin GOARCH=arm64 go build -ldflags "-X main.VersionMajor=${VER_CUR_MAJOR} -X main.VersionMinor=${VER_CUR_MINOR} -X main.VersionPoint=${VER_CUR_POINT} -X main.VersionTag=${git_rev} -X main.BuildDate=${build_date}" -o build/scriba.arm64.macos
 

@@ -5,12 +5,20 @@ import (
 	"time"
 )
 
+const (
+	PatternZero = iota
+	Pattern55
+	PatternAA
+	PatternFF
+	PatternRand
+)
+
 type dataReader struct {
 	data     []byte
 	position int
 }
 
-func NewDataReader(size int, zero bool) *dataReader {
+func NewDataReader(size int, pattern int) *dataReader {
 	//var total int
 	// Create 64K minimum size buffer
 	if size < 65536 {
@@ -22,8 +30,25 @@ func NewDataReader(size int, zero bool) *dataReader {
 	data := make([]byte, size)
 	initialPosition := rand.Intn(len(data))
 
-	// Since make() initializes the array with zeroes, we can optimize the zero case away.
-	if !zero {
+	// TODO: Handle pattern rather than zero
+	switch pattern {
+	case Pattern55:
+		for i := range data {
+			data[i] = 0x55
+		}
+	case PatternAA:
+		for i := range data {
+			data[i] = 0xAA
+		}
+	case PatternFF:
+		for i := range data {
+			data[i] = 0xFF
+		}
+	case PatternZero:
+		for i := range data {
+			data[i] = 0x00
+		}
+	case PatternRand:
 		r.Read(data)
 	}
 

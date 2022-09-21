@@ -19,6 +19,7 @@ const (
 
 type ReaderConfig struct {
 	BlockSize       int64
+	BytePattern     int
 	Direct          bool
 	FileSize        int64
 	ID              int
@@ -37,6 +38,7 @@ type WriterConfig struct {
 	BatchSize       int64
 	BlockSize       int64
 	BufferSize      int
+	BytePattern     int
 	Direct          bool
 	FileSize        int64
 	ID              int
@@ -49,7 +51,6 @@ type WriterConfig struct {
 	WriteTime       time.Duration
 	WriterPath      string
 	WriterType      uint8
-	Zeroes          bool
 }
 
 func dropPageCache() {
@@ -100,7 +101,12 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 		log.Printf("[Reader %d] Error: %s\n", config.ID, err)
 		return
 	}
-	defer workFile.Close()
+	defer func(workFile *os.File) {
+		err := workFile.Close()
+		if err != nil {
+			log.Fatalf("Unable to close file %s. %s", workFile.Name(), err)
+		}
+	}(workFile)
 
 	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
 		log.Printf("[Reader %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.ReaderPath, config.StartOffset, err)
@@ -232,7 +238,7 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	if Debug {
 		log.Printf("[Writer %d] Generating random data buffer\n", config.ID)
 	}
-	dr := NewDataReader(readerBufSize, config.Zeroes)
+	dr := NewDataReader(readerBufSize, config.BytePattern)
 	if Debug {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
@@ -242,7 +248,12 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
 		return
 	}
-	defer workFile.Close()
+	defer func(workFile *os.File) {
+		err := workFile.Close()
+		if err != nil {
+			log.Fatalf("Unable to close file %s. %s", workFile.Name(), err)
+		}
+	}(workFile)
 
 	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
 		log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
@@ -360,25 +371,30 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 	}
 }
 
-func prefill(filePath string, fileSize int64, zeroes bool, wg *sync.WaitGroup) {
+func prefill(filePath string, fileSize int64, pattern int, wg *sync.WaitGroup) {
 	var (
-		bytesNeeded   int64
-		data          []byte
-		readerBufSize int = 33554432
-		writeTotal    int64
+		bytesNeeded int64
+		data        []byte
+		writeTotal  int64
 	)
+	readerBufSize := 33554432
 
 	defer wg.Done()
 
 	data = make([]byte, readerBufSize)
-	dr := NewDataReader(readerBufSize, zeroes)
+	dr := NewDataReader(readerBufSize, pattern)
 
 	workFile, err := os.OpenFile(filePath, os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("%s: Error: %s.\n", filePath, err)
 		return
 	}
-	defer workFile.Close()
+	defer func(workFile *os.File) {
+		err := workFile.Close()
+		if err != nil {
+			log.Fatalf("Unable to close file %s. %s", workFile.Name(), err)
+		}
+	}(workFile)
 
 	if Verbose {
 		log.Printf("%s: Pre-filling starting.\n", filePath)

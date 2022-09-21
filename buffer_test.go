@@ -1,7 +1,7 @@
 package main
 
 import (
-	"io/ioutil"
+	"io"
 	"math/rand"
 	"testing"
 	"time"
@@ -10,10 +10,10 @@ import (
 func TestDataReader_Read(t *testing.T) {
 	smallData := make([]byte, 65536)
 	largeData := make([]byte, 128*1024*1024)
-	smallReader := NewDataReader(65535, false)
-	equalReader := NewDataReader(65536, false)
-	largeReader := NewDataReader(65537, false)
-	hugeReader := NewDataReader(64*1024*1024, false)
+	smallReader := NewDataReader(65535, PatternRand)
+	equalReader := NewDataReader(65536, PatternRand)
+	largeReader := NewDataReader(65537, PatternRand)
+	hugeReader := NewDataReader(64*1024*1024, PatternRand)
 
 	// Test copying data into a small byte slice
 	t.Log("Testing small reader buffer, small target")
@@ -52,9 +52,65 @@ func TestDataReader_Read(t *testing.T) {
 	}
 }
 
+func TestDataReaderValues(t *testing.T) {
+	maxSize := 1024 * 1024
+
+	// Test pattern 0x55
+	data := make([]byte, maxSize)
+	dataReader := NewDataReader(maxSize, Pattern55)
+	t.Log("Testing value 0x55 reader.")
+	if copied, _ := dataReader.Read(data); copied < len(data) {
+		t.Errorf("Copy from pattern buffer failed. Coped %d bytes.\n", copied)
+	}
+	for i := range data {
+		if data[i] != 0x55 {
+			t.Errorf("Pattern 0x55 expected, read %X.\n", data[i])
+		}
+	}
+
+	// Test pattern 0xAA
+	data = make([]byte, maxSize)
+	dataReader = NewDataReader(maxSize, PatternAA)
+	t.Log("Testing value 0xAA reader.")
+	if copied, _ := dataReader.Read(data); copied < len(data) {
+		t.Errorf("Copy from pattern buffer failed. Coped %d bytes.\n", copied)
+	}
+	for i := range data {
+		if data[i] != 0xAA {
+			t.Errorf("Pattern 0xAA expected, read %X.\n", data[i])
+		}
+	}
+
+	// Test pattern 0xFF
+	data = make([]byte, maxSize)
+	dataReader = NewDataReader(maxSize, PatternFF)
+	t.Log("Testing value 0xFF reader.")
+	if copied, _ := dataReader.Read(data); copied < len(data) {
+		t.Errorf("Copy from pattern buffer failed. Coped %d bytes.\n", copied)
+	}
+	for i := range data {
+		if data[i] != 0xFF {
+			t.Errorf("Pattern 0xFF expected, read %X.\n", data[i])
+		}
+	}
+
+	// Test pattern 0x00
+	data = make([]byte, maxSize)
+	dataReader = NewDataReader(maxSize, PatternZero)
+	t.Log("Testing value 0x00 reader.")
+	if copied, _ := dataReader.Read(data); copied < len(data) {
+		t.Errorf("Copy from pattern buffer failed. Coped %d bytes.\n", copied)
+	}
+	for i := range data {
+		if data[i] != 0x00 {
+			t.Errorf("Pattern 0x00 expected, read %X.\n", data[i])
+		}
+	}
+}
+
 func TestDataReaderSizeRange(t *testing.T) {
 	maxSize := 1024 * 1024
-	dataReader := NewDataReader(maxSize/2, false)
+	dataReader := NewDataReader(maxSize/2, PatternRand)
 
 	t.Log("Testing buffer sizes")
 	for i := 1; i < maxSize+1; i += 1024 {
@@ -69,7 +125,7 @@ func TestDataReaderSizeRange(t *testing.T) {
 
 func TestDataReaderIndexes(t *testing.T) {
 	maxSize := 1024 * 1024
-	dataReader := NewDataReader(maxSize, false)
+	dataReader := NewDataReader(maxSize, PatternRand)
 	buffer := make([]byte, 1)
 
 	t.Log("Testing reader indexes")
@@ -83,12 +139,12 @@ func TestDataReaderIndexes(t *testing.T) {
 
 func TestNewDataReader(t *testing.T) {
 	t.Log("Verifying minimum read buffer size")
-	if testReader := NewDataReader(256, false); len(testReader.data) < 65536 {
+	if testReader := NewDataReader(256, PatternRand); len(testReader.data) < 65536 {
 		t.Errorf("Reader internal buffer size is less than the minimum required. %d bytes\n", len(testReader.data))
 	}
 
 	t.Log("Verifying read buffer size matches the request")
-	if testReader := NewDataReader(1024*1024, false); len(testReader.data) < 1024*1024 {
+	if testReader := NewDataReader(1024*1024, PatternRand); len(testReader.data) < 1024*1024 {
 		t.Errorf("Reader internal buffer is not the size requested. %d bytes\n", len(testReader.data))
 	}
 }
@@ -96,7 +152,7 @@ func TestNewDataReader(t *testing.T) {
 func BenchmarkDataReader_Read(b *testing.B) {
 	b.ReportAllocs()
 	data := make([]byte, 64*1024*1024)
-	r := NewDataReader(32*1024*1024, false)
+	r := NewDataReader(32*1024*1024, PatternRand)
 
 	totalCopied := 0
 	startTime := time.Now()
@@ -114,7 +170,7 @@ func BenchmarkDataReader_Read(b *testing.B) {
 func BenchmarkShuffle(b *testing.B) {
 	b.ReportAllocs()
 	var shuffles int
-	r := NewDataReader(32*1024*1024, false)
+	r := NewDataReader(32*1024*1024, PatternRand)
 
 	startTime := time.Now()
 	for i := 0; i < b.N; i++ {
@@ -136,8 +192,8 @@ func BenchmarkThroughput(b *testing.B) {
 	outputSize := 1 * 1024 * 1024 * 1024
 	data := make([]byte, flushSize)
 
-	dr := NewDataReader(readerBufSize, false)
-	tmpfile := ioutil.Discard
+	dr := NewDataReader(readerBufSize, PatternRand)
+	tempFile := io.Discard
 
 	for run := 0; run < b.N; run++ {
 		writeTotal := 0
@@ -148,7 +204,7 @@ func BenchmarkThroughput(b *testing.B) {
 				b.Errorf("Reader failed. Err: %s, read: %d, requested %d\n", err, r, flushSize)
 				return
 			}
-			n, _ := tmpfile.Write(data)
+			n, _ := tempFile.Write(data)
 			writeTotal += n
 		}
 		if writeTotal < outputSize {
@@ -157,7 +213,7 @@ func BenchmarkThroughput(b *testing.B) {
 				b.Errorf("Reader failed. Err: %s, read: %d, requested %d\n", err, r, flushSize)
 				return
 			}
-			n, _ := tmpfile.Write(data[:outputSize-writeTotal])
+			n, _ := tempFile.Write(data[:outputSize-writeTotal])
 			writeTotal += n
 		}
 

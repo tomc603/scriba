@@ -1,2 +1,3 @@
 TODO: Write latency stats every StatsWriteBatch iterations
 TODO: Histogram function for latencies
+TODO: Add verify option, which confirms the byte pattern written to a device

@@ -63,6 +63,7 @@ func main() {
 		cliFileCount     int
 		cliFileSize      int64
 		cliIOLimit       int64
+		cliBytePattern   string
 		cliPrefill       bool
 		cliRecordStats   string
 		cliRecordLatency string
@@ -77,6 +78,7 @@ func main() {
 		ioStatsResults   *IOStats
 		ioRunTime        time.Duration
 		keep             bool
+		bytePattern      int
 		randomMap        []int64
 		readerConfigs    []*ReaderConfig
 		readPattern      uint8
@@ -103,6 +105,7 @@ func main() {
 	flag.BoolVar(&cliDirect, "direct", false, "Linux only: Use direct file IO to skip filesystem cache. Default: false")
 	flag.IntVar(&cliFileCount, "files", 1, "The number of files per path")
 	flag.BoolVar(&keep, "keep", false, "Do not remove data files upon completion")
+	flag.StringVar(&cliBytePattern, "pattern", "random", "The byte pattern for writer routines. One of 55, AA, FF, random, zero.")
 	flag.BoolVar(&cliPrefill, "prefill", false, "Pre-fill files before performing IO tests.")
 	flag.StringVar(&cliRecordLatency, "latency", "", "Save IO latency statistics to the specified path")
 	flag.StringVar(&cliRecordStats, "stats", "", "Save block device IO statistics to the specified path")
@@ -158,6 +161,24 @@ func main() {
 		os.Exit(1)
 	}
 	ioPaths = uniquePaths(flag.Args())
+
+	// TODO: Interpret bytePattern flag (55, AA, FF, random, zero)
+	cliBytePattern = strings.ToLower(cliBytePattern)
+	switch cliBytePattern {
+	case "zero":
+		bytePattern = PatternZero
+	case "random":
+		bytePattern = PatternRand
+	case "55":
+		bytePattern = Pattern55
+	case "aa":
+		bytePattern = PatternAA
+	case "ff":
+		bytePattern = PatternFF
+	default:
+		log.Printf("ERROR: Byte pattern must be 55, AA, FF, random, or zero. %s is invalid.\n", cliBytePattern)
+		os.Exit(1)
+	}
 
 	cliReadPattern = strings.ToLower(cliReadPattern)
 	switch cliReadPattern {
@@ -286,7 +307,7 @@ func main() {
 			}
 			if cliPrefill {
 				wg.Add(1)
-				go prefill(filePath, cliFileSize, cliZero, &wg)
+				go prefill(filePath, cliFileSize, bytePattern, &wg)
 			}
 
 			ioFiles = append(ioFiles, filePath)
@@ -312,6 +333,7 @@ func main() {
 					BatchSize:   cliBatchSize,
 					BlockSize:   cliBlockSize,
 					BufferSize:  cliBufferSize,
+					BytePattern: bytePattern,
 					Direct:      cliDirect,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
@@ -320,7 +342,6 @@ func main() {
 					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
 					WriterType:  writePattern,
-					Zeroes:      cliZero,
 					Results:     ioStatsResults,
 				}
 				writerConfigs = append(writerConfigs, &wc)
@@ -341,6 +362,7 @@ func main() {
 				rc := ReaderConfig{
 					ID:          readerID,
 					BlockSize:   cliBlockSize,
+					BytePattern: bytePattern,
 					Direct:      cliDirect,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
