@@ -130,8 +130,7 @@ func main() {
 	}
 
 	if cliDirect {
-		osname := runtime.GOOS
-		if osname != "Linux" {
+		if runtime.GOOS != "linux" {
 			log.Println("ERROR: Direct I/O is only supported by Linux.")
 			os.Exit(1)
 		}
