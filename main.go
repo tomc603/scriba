@@ -323,10 +323,9 @@ func main() {
 			if Verbose {
 				log.Printf("[%s] Starting %d writers\n", ioFile, cliWriters)
 			}
-			writerID := 0
 			for i := 0; i < cliWriters; i++ {
 				wc := WriterConfig{
-					ID:          writerID,
+					ID:          i,
 					BatchSize:   cliBatchSize,
 					BlockSize:   cliBlockSize,
 					BufferSize:  cliBufferSize,
@@ -334,7 +333,7 @@ func main() {
 					Direct:      cliDirect,
 					FileSize:    cliFileSize,
 					RandomMap:   &randomMap,
-					StartOffset: cliFileSize / int64(cliWriters) * int64(writerID),
+					StartOffset: cliFileSize / int64(cliWriters) * int64(i),
 					WriteLimit:  cliIOLimit,
 					WriteTime:   ioRunTime,
 					WriterPath:  ioFile,
@@ -344,7 +343,6 @@ func main() {
 				writerConfigs = append(writerConfigs, &wc)
 				wg.Add(1)
 				go writer(&wc, &wg)
-				writerID++
 			}
 		} else {
 			log.Println("Skipping writers for /dev/zero")
@@ -354,10 +352,9 @@ func main() {
 			if Verbose {
 				log.Printf("[%s] Starting %d readers\n", ioFile, cliReaders)
 			}
-			readerID := 0
 			for i := 0; i < cliReaders; i++ {
 				rc := ReaderConfig{
-					ID:          readerID,
+					ID:          i,
 					BlockSize:   cliBlockSize,
 					BytePattern: bytePattern,
 					Direct:      cliDirect,
@@ -368,12 +365,11 @@ func main() {
 					ReaderPath:  ioFile,
 					ReaderType:  readPattern,
 					Results:     ioStatsResults,
-					StartOffset: cliFileSize / int64(cliReaders) * int64(readerID),
+					StartOffset: cliFileSize / int64(cliReaders) * int64(i),
 				}
 				readerConfigs = append(readerConfigs, &rc)
 				wg.Add(1)
 				go reader(&rc, &wg)
-				readerID++
 			}
 		} else {
 			log.Println("Skipping readers for /dev/null")
