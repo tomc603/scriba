@@ -98,13 +98,13 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 
 	workFile, err := os.OpenFile(config.ReaderPath, readerFlags(config.Direct), 0666)
 	if err != nil {
-		log.Printf("[Reader %d] Error: %s\n", config.ID, err)
+		log.Printf("[Reader %d] Error opening file %s: %s\n", config.ID, config.ReaderPath, err)
 		return
 	}
 	defer func(workFile *os.File) {
 		err := workFile.Close()
 		if err != nil {
-			log.Fatalf("Unable to close file %s. %s", workFile.Name(), err)
+			log.Fatalf("[Reader %d] Unable to close file %s. %s", config.ID, workFile.Name(), err)
 		}
 	}(workFile)
 
@@ -172,10 +172,10 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 			}
 		}
 
-		n, err := workFile.Read(buf[:bytesToRead])
+		n, readErr := workFile.Read(buf[:bytesToRead])
 		config.ThroughputBytes += int64(n)
-		if err != nil {
-			if err == io.EOF {
+		if readErr != nil {
+			if readErr == io.EOF {
 				// We might read a partial buffer here, but detecting EOF and
 				// seeking to the beginning is the easiest way to continue reading
 				// while we need more data. This should be extremely rare.
@@ -183,11 +183,11 @@ func reader(config *ReaderConfig, wg *sync.WaitGroup) {
 					log.Printf("[Reader %d]: Reached EOF, seeking to 0\n", config.ID)
 				}
 				if _, err := workFile.Seek(0, 0); err != nil {
-					log.Printf("[Reader %d]: ERROR Unable to seek to beginning of %s. %s\n", config.ID, config.ReaderPath, err)
+					log.Printf("[Reader %d]: ERROR Unable to seek to beginning of %s. %s\n", config.ID, config.ReaderPath, readErr)
 				}
 				continue
 			}
-			log.Printf("[Reader %d] ERROR: %s\n", config.ID, err)
+			log.Printf("[Reader %d] ERROR: Unable to read from %s. %v\n", config.ID, workFile.Name(), readErr)
 			return
 		}
 
@@ -243,9 +243,9 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		log.Printf("[Writer %d] Generated %d random bytes", config.ID, readerBufSize)
 	}
 
-	workFile, err := os.OpenFile(config.WriterPath, writerFlags(config.Direct), 0644)
-	if err != nil {
-		log.Printf("[Writer %d] Error: %s\n", config.ID, err)
+	workFile, openError := os.OpenFile(config.WriterPath, writerFlags(config.Direct), 0644)
+	if openError != nil {
+		log.Printf("[Writer %d] Error: %s\n", config.ID, openError)
 		return
 	}
 	defer func(workFile *os.File) {
@@ -255,8 +255,8 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		}
 	}(workFile)
 
-	if off, err := workFile.Seek(config.StartOffset, 0); err != nil {
-		log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, err)
+	if off, seekError := workFile.Seek(config.StartOffset, 0); seekError != nil {
+		log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, config.StartOffset, seekError)
 	} else {
 		if Debug {
 			log.Printf("[Writer %d] New offset %s@%d", config.ID, config.WriterPath, off)
@@ -289,8 +289,8 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 			}
 			break
 		}
-		r, err := dr.Read(data)
-		if err != nil || int64(r) < config.BlockSize {
+		r, dataReadError := dr.Read(data)
+		if dataReadError != nil || int64(r) < config.BlockSize {
 			return
 		}
 
@@ -324,17 +324,17 @@ func writer(config *WriterConfig, wg *sync.WaitGroup) {
 		// Don't count the position calculation in the latency math
 		latencyStart := time.Now()
 		if seek {
-			if seekPos, err := workFile.Seek(seekPosition, 0); err != nil {
-				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, seekPosition, err)
+			if seekPos, seekError := workFile.Seek(seekPosition, 0); seekError != nil {
+				log.Printf("[Writer %d] ERROR: Unable to seek %s@%d. %s\n", config.ID, config.WriterPath, seekPosition, seekError)
 			} else {
 				lastPos = seekPos
 			}
 		}
 
-		n, err := workFile.Write(data[:bytesNeeded])
-		if err != nil {
+		n, writeError := workFile.Write(data[:bytesNeeded])
+		if writeError != nil {
 			_ = workFile.Close()
-			log.Printf("[Writer %d] Error: %s\n", config.ID, err)
+			log.Printf("[Writer %d] Error: %s\n", config.ID, writeError)
 			return
 		}
 
@@ -384,7 +384,9 @@ func prefill(filePath string, fileSize int64, pattern int, wg *sync.WaitGroup) {
 	data = make([]byte, readerBufSize)
 	dr := NewDataReader(readerBufSize, pattern)
 
-	workFile, err := os.OpenFile(filePath, os.O_WRONLY, 0644)
+	//writerFlags(config.Direct)
+	//workFile, err := os.OpenFile(filePath, os.O_WRONLY, 0644)
+	workFile, err := os.OpenFile(filePath, writerFlags(true), 0644)
 	if err != nil {
 		log.Printf("%s: Error: %s.\n", filePath, err)
 		return

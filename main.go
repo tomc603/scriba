@@ -27,7 +27,7 @@ var (
 )
 
 func setupSignalHandler(wc *[]*WriterConfig, rc *[]*ReaderConfig) {
-	c := make(chan os.Signal)
+	c := make(chan os.Signal, 2)
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM, syscall.SIGUSR1)
 	go func() {
 		for sig := range c {
