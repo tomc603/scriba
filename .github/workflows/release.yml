@@ -1,8 +1,9 @@
 name: Build and Release Scriba
 
 on:
-  release:
-    types: [created]
+  push:
+    tags:
+      - "v*"
 
 jobs:
   build:
@@ -48,17 +49,17 @@ jobs:
       with:
         path: artifacts
 
-    # - name: Create Release
-    #   id: create_release
-    #   uses: actions/create-release@v1
-    #   env:
-    #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    #   with:
-    #     tag_name: ${{ github.event.release.tag_name }}
-    #     release_name: ${{ github.event.release.name }}
-    #     body: ${{ github.event.release.body }}
-    #     draft: ${{ github.event.release.draft }}
-    #     prerelease: ${{ github.event.release.prerelease }}
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.event.release.tag_name }}
+        release_name: ${{ github.event.release.name }}
+        body: ${{ github.event.release.body }}
+        draft: ${{ github.event.release.draft }}
+        prerelease: ${{ github.event.release.prerelease }}
 
     - name: Upload Release Assets (Linux x64)
       uses: actions/upload-release-asset@v1
